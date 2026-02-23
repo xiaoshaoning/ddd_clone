@@ -320,17 +320,25 @@ class MainWindow(QMainWindow):
     def update_ui_state(self, state_info):
         """Update UI based on current debugger state."""
         # Update status label
-        self.status_label.setText(f"State: {state_info.get('state', 'unknown')}")
+        state = state_info.get('state', 'unknown')
+        self.status_label.setText(f"State: {state}")
 
-        # Update source code display if file/line info available
-        if 'file' in state_info and 'line' in state_info:
+        # Check if we have valid line information to highlight
+        has_valid_line = ('file' in state_info and 'line' in state_info and
+                         state_info['line'] is not None and state_info['line'] > 0)
+
+        if has_valid_line and state == 'stopped':
+            # Highlight current execution line in source viewer
             current_line = state_info['line']
-            if current_line is not None:
-                self.current_file_label.setText(f"{state_info['file']}:{current_line}")
-                # Highlight current execution line in source viewer
-                self.source_viewer.highlight_current_line(current_line)
-            else:
+            self.current_file_label.setText(f"{state_info['file']}:{current_line}")
+            self.source_viewer.highlight_current_line(current_line)
+        else:
+            # Clear highlight when program exits or no valid line info
+            self.source_viewer.clear_all_highlights()
+            if 'file' in state_info and state_info['file']:
                 self.current_file_label.setText(f"{state_info['file']}:??")
+            else:
+                self.current_file_label.setText("No file loaded")
 
     def handle_gdb_output(self, output):
         """Handle output received from GDB."""

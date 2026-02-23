@@ -92,6 +92,13 @@ class GDBController(QObject):
         elif 'running' in output:
             self.current_state['state'] = 'running'
             self.state_changed.emit(self.current_state.copy())
+        elif 'exited' in output or 'exit-normal' in output:
+            # Program has exited, clear line and file info
+            self.current_state['state'] = 'exited'
+            self.current_state['line'] = None
+            self.current_state['file'] = None
+            self.current_state['function'] = None
+            self.state_changed.emit(self.current_state.copy())
 
     def _handle_stopped_state(self, output: str):
         """Handle stopped state and extract location information."""
