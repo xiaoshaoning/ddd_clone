@@ -159,9 +159,7 @@ class VariableInspector(QObject):
         Returns:
             Evaluated value as string, or None if evaluation failed
         """
-        # TODO: Implement actual GDB expression evaluation
-        # For now, return a placeholder
-        return f"eval({expression})"
+        return self.gdb_controller.evaluate_expression(expression)
 
     def get_local_variables(self) -> List[Variable]:
         """

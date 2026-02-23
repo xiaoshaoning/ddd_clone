@@ -146,6 +146,114 @@ class TestGDBController(unittest.TestCase):
         self.assertIsNone(self.controller.gdb_process)
         self.assertEqual(self.controller.current_state['state'], 'disconnected')
 
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variables(self, mock_send_mi):
+        """Test getting variables."""
+        # Mock response
+        mock_response = ('^', 'done,variables=[{name="x",value="1",type="int"},{name="y",value="2",type="int"}]')
+        mock_send_mi.return_value = mock_response
+
+        # Mock GDB process as running
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        variables = self.controller.get_variables()
+
+        # Verify result
+        self.assertEqual(len(variables), 2)
+        self.assertEqual(variables[0]['name'], 'x')
+        self.assertEqual(variables[0]['value'], '1')
+        self.assertEqual(variables[0]['type'], 'int')
+        self.assertEqual(variables[1]['name'], 'y')
+        self.assertEqual(variables[1]['value'], '2')
+        mock_send_mi.assert_called_with("-stack-list-variables --simple-values")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variables_no_process(self, mock_send_mi):
+        """Test getting variables when no GDB process."""
+        # No GDB process
+        self.controller.gdb_process = None
+        variables = self.controller.get_variables()
+        self.assertEqual(variables, [])
+        mock_send_mi.assert_not_called()
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variables_failed_response(self, mock_send_mi):
+        """Test getting variables with failed response."""
+        mock_response = ('*', 'async-output')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        variables = self.controller.get_variables()
+        self.assertEqual(variables, [])
+        mock_send_mi.assert_called()
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_call_stack(self, mock_send_mi):
+        """Test getting call stack."""
+        mock_response = ('^', 'done,stack=[frame={level="0",addr="0x1234",func="main",file="test.c",line="10"},frame={level="1",addr="0x5678",func="foo",file="test.c",line="20"}]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        frames = self.controller.get_call_stack()
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(frames[0]['level'], '0')
+        self.assertEqual(frames[0]['addr'], '0x1234')
+        self.assertEqual(frames[0]['func'], 'main')
+        self.assertEqual(frames[0]['file'], 'test.c')
+        self.assertEqual(frames[0]['line'], '10')
+        self.assertEqual(frames[1]['level'], '1')
+        mock_send_mi.assert_called_with("-stack-list-frames")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_evaluate_expression(self, mock_send_mi):
+        """Test evaluating expression."""
+        mock_response = ('^', 'done,value="42"')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        result = self.controller.evaluate_expression("x")
+        self.assertEqual(result, "42")
+        mock_send_mi.assert_called_with("-data-evaluate-expression x")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_evaluate_expression_failed(self, mock_send_mi):
+        """Test evaluating expression that fails."""
+        mock_response = ('^', 'error,msg="No symbol \\"x\\" in current context"')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        result = self.controller.evaluate_expression("x")
+        self.assertIsNone(result)
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_read_memory(self, mock_send_mi):
+        """Test reading memory."""
+        mock_response = ('^', 'done,memory=[{addr="0x1000",data=["0x41","0x42","0x43"]}]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        result = self.controller.read_memory(0x1000, 3)
+        self.assertEqual(result, b'ABC')
+        mock_send_mi.assert_called_with("-data-read-memory 0x1000 x 1 3")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_read_memory_invalid_hex(self, mock_send_mi):
+        """Test reading memory with invalid hex data."""
+        mock_response = ('^', 'done,memory=[{addr="0x1000",data=["0xZZ","0x42"]}]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        result = self.controller.read_memory(0x1000, 2)
+        # Should skip invalid hex and return valid bytes
+        self.assertEqual(result, b'B')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -76,11 +76,12 @@ class MemoryViewer(QObject):
         """
         try:
             # Use GDB to read memory
-            # This would need to be implemented in the GDB controller
-            # For now, return dummy data
-            dummy_data = bytes([(address + i) % 256 for i in range(size)])
+            data = self.gdb_controller.read_memory(address, size)
+            if data is None:
+                self.memory_error.emit("Failed to read memory from GDB")
+                return None
 
-            region = MemoryRegion(address, size, dummy_data)
+            region = MemoryRegion(address, len(data), data)
             self.current_region = region
             self.memory_updated.emit(region)
             return region
