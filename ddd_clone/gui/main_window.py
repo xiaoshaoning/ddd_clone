@@ -46,6 +46,8 @@ class MainWindow(QMainWindow):
 
         # Create central widget and main layout
         central_widget = QWidget()
+        # Set background color to bean green (RGB: 202, 234, 206)
+        central_widget.setStyleSheet("background-color: rgb(202, 234, 206);")
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
 

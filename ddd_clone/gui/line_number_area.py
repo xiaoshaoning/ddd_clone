@@ -65,7 +65,7 @@ class LineNumberArea(QWidget):
         painter = QPainter(self)
         # Explicitly set the painter font to ensure it uses our font
         painter.setFont(self.font())
-        painter.fillRect(event.rect(), QColor(240, 240, 240))
+        painter.fillRect(event.rect(), QColor(202, 234, 206))
 
         block = self.source_viewer.firstVisibleBlock()
         block_number = block.blockNumber()

@@ -48,6 +48,9 @@ class SourceViewer(QPlainTextEdit):
         # Line number area
         self.line_number_area = LineNumberArea(self)
 
+        # Set background color to bean green (RGB: 202, 234, 206)
+        self.setStyleSheet("background-color: rgb(202, 234, 206);")
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -147,7 +150,7 @@ class SourceViewer(QPlainTextEdit):
             language = self._get_language_from_file(file_path)
             lexer = get_lexer_by_name(language)
 
-            # Create HTML formatter
+            # Create HTML formatter with transparent background
             formatter = HtmlFormatter(
                 style='default',
                 noclasses=True,
