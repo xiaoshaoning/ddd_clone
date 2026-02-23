@@ -36,6 +36,10 @@ class MainWindow(QMainWindow):
         self.pending_variable_queries = {}
         self.current_hover_variable = None
 
+        # Register display settings
+        self.register_format = "x"  # Default: hexadecimal
+        self.previous_register_values = {}  # For change detection
+
         self.setup_ui()
         self.connect_signals()
 
@@ -122,12 +126,16 @@ class MainWindow(QMainWindow):
         self.watchpoints_tree = QTreeWidget()
         self.watchpoints_tree.setHeaderLabels(["Expression", "Type", "Enabled"])
         self.watchpoints_tree.setFont(QFont("Arial", 18))  # Larger font
+        self.watchpoints_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.watchpoints_tree.customContextMenuRequested.connect(self._show_watchpoints_context_menu)
         tab_widget.addTab(self.watchpoints_tree, "Watchpoints")
 
         # Registers tab
         self.registers_tree = QTreeWidget()
         self.registers_tree.setHeaderLabels(["Name", "Number", "Value"])
         self.registers_tree.setFont(QFont("Arial", 18))  # Larger font
+        self.registers_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.registers_tree.customContextMenuRequested.connect(self._show_registers_context_menu)
         tab_widget.addTab(self.registers_tree, "Registers")
 
         # Call stack tab
@@ -226,6 +234,34 @@ class MainWindow(QMainWindow):
         add_watchpoint_action.triggered.connect(self.add_watchpoint_dialog)
         toolbar.addAction(add_watchpoint_action)
 
+        # Add separator
+        toolbar.addSeparator()
+
+        # Register format selection
+        format_label = QLabel("Registers:")
+        format_label.setFont(toolbar_font)
+        toolbar.addWidget(format_label)
+
+        self.register_format_combo = QComboBox()
+        self.register_format_combo.setFont(toolbar_font)
+        self.register_format_combo.addItems(["Hex", "Decimal", "Octal", "Binary"])
+        self.register_format_combo.setCurrentText("Hex")
+        self.register_format_combo.currentTextChanged.connect(self._on_register_format_changed)
+        toolbar.addWidget(self.register_format_combo)
+
+    def _on_register_format_changed(self, format_text: str) -> None:
+        """Handle register format selection change."""
+        format_map = {
+            "Hex": "x",
+            "Decimal": "d",
+            "Octal": "o",
+            "Binary": "b"
+        }
+        self.register_format = format_map.get(format_text, "x")
+        # Update register display if program is stopped
+        if self.gdb_controller.current_state['state'] == 'stopped':
+            self._update_registers_tree()
+
     def create_menu_bar(self) -> None:
         """Create the menu bar."""
         menu_bar = QMenuBar(self)
@@ -239,6 +275,22 @@ class MainWindow(QMainWindow):
         open_action = QAction("Open Program...", self)
         open_action.triggered.connect(self.open_program)
         file_menu.addAction(open_action)
+
+        # Add separator
+        file_menu.addSeparator()
+
+        # Save breakpoints action
+        save_bp_action = QAction("Save Breakpoints...", self)
+        save_bp_action.triggered.connect(self.save_breakpoints)
+        file_menu.addAction(save_bp_action)
+
+        # Load breakpoints action
+        load_bp_action = QAction("Load Breakpoints...", self)
+        load_bp_action.triggered.connect(self.load_breakpoints)
+        file_menu.addAction(load_bp_action)
+
+        # Add separator
+        file_menu.addSeparator()
 
         # Exit action
         exit_action = QAction("Exit", self)
@@ -679,17 +731,43 @@ class MainWindow(QMainWindow):
         self.registers_tree.clear()
         # Get register names
         registers = self.gdb_controller.get_registers()
-        # Get register values (in hex format by default)
-        values = self.gdb_controller.get_register_values("x")
+        # Get register values in selected format
+        values = self.gdb_controller.get_register_values(self.register_format)
 
         # Create a mapping of register number to value for quick lookup
         value_map = {v.get('number', ''): v.get('value', '') for v in values}
 
+        # Track current values for change detection
+        current_values = {}
+
         for reg in registers:
             item = QTreeWidgetItem(self.registers_tree)
-            item.setText(0, reg.get('name', ''))
-            item.setText(1, reg.get('number', ''))
-            item.setText(2, value_map.get(reg.get('number', ''), 'N/A'))
+            register_name = reg.get('name', '')
+            register_number = reg.get('number', '')
+            register_value = value_map.get(register_number, 'N/A')
+
+            item.setText(0, register_name)
+            item.setText(1, register_number)
+            item.setText(2, register_value)
+
+            # Store current value for change detection
+            current_values[register_name] = register_value
+
+            # Apply color highlighting for changed registers
+            if register_name in self.previous_register_values:
+                previous_value = self.previous_register_values[register_name]
+                if previous_value != register_value:
+                    # Register changed - highlight in yellow
+                    item.setBackground(2, Qt.yellow)
+                else:
+                    # Register unchanged - clear highlighting
+                    item.setBackground(2, Qt.transparent)
+            else:
+                # First time seeing this register
+                item.setBackground(2, Qt.transparent)
+
+        # Update previous values for next comparison
+        self.previous_register_values = current_values
 
     def add_watchpoint_dialog(self) -> None:
         """Show dialog to add a new watchpoint."""
@@ -881,3 +959,190 @@ class MainWindow(QMainWindow):
     def _clear_gdb_output(self) -> None:
         """Clear the GDB output text area."""
         self.gdb_output_text.clear()
+
+    def _show_watchpoints_context_menu(self, position: Any) -> None:
+        """Show context menu for watchpoints tree."""
+        item = self.watchpoints_tree.itemAt(position)
+        if not item:
+            return
+
+        menu = QMenu(self.watchpoints_tree)
+
+        # Get watchpoint ID from item data (stored in first column)
+        expression = item.text(0)
+        watchpoint_type = item.text(1)
+
+        # Find the watchpoint by expression and type
+        watchpoint_id = None
+        for wp_id, wp in self.breakpoint_manager.get_watchpoints().items():
+            if wp.expression == expression and wp.watchpoint_type == watchpoint_type:
+                watchpoint_id = wp_id
+                break
+
+        if watchpoint_id is None:
+            return
+
+        # Edit action
+        edit_action = QAction("Edit", self.watchpoints_tree)
+        edit_action.triggered.connect(lambda: self._edit_watchpoint(watchpoint_id))
+        menu.addAction(edit_action)
+
+        # Delete action
+        delete_action = QAction("Delete", self.watchpoints_tree)
+        delete_action.triggered.connect(lambda: self._delete_watchpoint(watchpoint_id))
+        menu.addAction(delete_action)
+
+        # Toggle action
+        enabled = item.text(2) == "True"
+        toggle_text = "Disable" if enabled else "Enable"
+        toggle_action = QAction(toggle_text, self.watchpoints_tree)
+        toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint_id))
+        menu.addAction(toggle_action)
+
+        # Show the menu at the cursor position
+        menu.exec_(self.watchpoints_tree.viewport().mapToGlobal(position))
+
+    def _edit_watchpoint(self, watchpoint_id: int) -> None:
+        """Edit a watchpoint."""
+        watchpoint = self.breakpoint_manager.get_watchpoint(watchpoint_id)
+        if not watchpoint:
+            return
+
+        # Create dialog for editing
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Watchpoint")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+
+        # Expression input
+        expr_label = QLabel("Expression:")
+        layout.addWidget(expr_label)
+        expr_input = QLineEdit(dialog)
+        expr_input.setText(watchpoint.expression)
+        layout.addWidget(expr_input)
+
+        # Type selection
+        type_label = QLabel("Type:")
+        layout.addWidget(type_label)
+        type_combo = QComboBox(dialog)
+        type_combo.addItems(["write", "read", "access"])
+        type_combo.setCurrentText(watchpoint.watchpoint_type)
+        layout.addWidget(type_combo)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK", dialog)
+        cancel_button = QPushButton("Cancel", dialog)
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+
+        def on_ok():
+            new_expr = expr_input.text().strip()
+            new_type = type_combo.currentText()
+            if new_expr and new_type:
+                self.breakpoint_manager.update_watchpoint_expression(
+                    watchpoint_id, new_expr, new_type
+                )
+            dialog.accept()
+
+        def on_cancel():
+            dialog.reject()
+
+        ok_button.clicked.connect(on_ok)
+        cancel_button.clicked.connect(on_cancel)
+
+        dialog.exec_()
+
+    def _delete_watchpoint(self, watchpoint_id: int) -> None:
+        """Delete a watchpoint."""
+        self.breakpoint_manager.remove_watchpoint(watchpoint_id)
+
+    def _toggle_watchpoint(self, watchpoint_id: int) -> None:
+        """Toggle a watchpoint enabled state."""
+        self.breakpoint_manager.toggle_watchpoint(watchpoint_id)
+
+    def _show_registers_context_menu(self, position: Any) -> None:
+        """Show context menu for registers tree."""
+        item = self.registers_tree.itemAt(position)
+        if not item:
+            return
+
+        menu = QMenu(self.registers_tree)
+
+        # Get register name from item
+        register_name = item.text(0)
+
+        # Copy value action
+        copy_value_action = QAction("Copy Value", self.registers_tree)
+        copy_value_action.triggered.connect(lambda: self._copy_register_value(register_name))
+        menu.addAction(copy_value_action)
+
+        # Copy name action
+        copy_name_action = QAction("Copy Name", self.registers_tree)
+        copy_name_action.triggered.connect(lambda: self._copy_register_name(register_name))
+        menu.addAction(copy_name_action)
+
+        # Copy number action
+        copy_number_action = QAction("Copy Number", self.registers_tree)
+        copy_number_action.triggered.connect(lambda: self._copy_register_number(item.text(1)))
+        menu.addAction(copy_number_action)
+
+        # Show the menu at the cursor position
+        menu.exec_(self.registers_tree.viewport().mapToGlobal(position))
+
+    def _copy_register_value(self, register_name: str) -> None:
+        """Copy register value to clipboard."""
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(register_name)
+
+    def _copy_register_name(self, register_name: str) -> None:
+        """Copy register name to clipboard."""
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(register_name)
+
+    def _copy_register_number(self, register_number: str) -> None:
+        """Copy register number to clipboard."""
+        from PyQt5.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(register_number)
+
+    def save_breakpoints(self) -> None:
+        """Save breakpoints and watchpoints to a file."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Breakpoints",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if file_path:
+            if self.breakpoint_manager.save_breakpoints_to_file(file_path):
+                self.status_label.setText(f"Breakpoints saved to {file_path}")
+            else:
+                self.status_label.setText("Failed to save breakpoints")
+
+    def load_breakpoints(self) -> None:
+        """Load breakpoints and watchpoints from a file."""
+        from PyQt5.QtWidgets import QFileDialog
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Breakpoints",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if file_path:
+            if self.breakpoint_manager.load_breakpoints_from_file(file_path):
+                self.status_label.setText(f"Breakpoints loaded from {file_path}")
+                # Update UI
+                self._update_watchpoints_tree()
+                # Note: Breakpoints tree update is handled via signals
+            else:
+                self.status_label.setText("Failed to load breakpoints")

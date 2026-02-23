@@ -258,25 +258,109 @@ class BreakpointManager(QObject):
         # For now, we assume our internal state matches GDB
         pass
 
-    def load_breakpoints_from_file(self, file_path: str):
+    def load_breakpoints_from_file(self, file_path: str) -> bool:
         """
-        Load breakpoints from a file.
+        Load breakpoints and watchpoints from a file.
 
         Args:
             file_path: Path to breakpoints file
-        """
-        # TODO: Implement breakpoint file loading
-        pass
 
-    def save_breakpoints_to_file(self, file_path: str):
+        Returns:
+            True if successful, False otherwise
         """
-        Save breakpoints to a file.
+        try:
+            import json
+            import os
+
+            if not os.path.exists(file_path):
+                return False
+
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+
+            # Clear existing breakpoints and watchpoints
+            self.clear_all_breakpoints()
+            self.clear_all_watchpoints()
+
+            # Load breakpoints
+            for bp_data in data.get('breakpoints', []):
+                bp_id = bp_data.get('id')
+                file = bp_data.get('file')
+                line = bp_data.get('line')
+                condition = bp_data.get('condition')
+                enabled = bp_data.get('enabled', True)
+
+                # Create breakpoint
+                bp = Breakpoint(bp_id, file, line, condition)
+                bp.enabled = enabled
+                self.breakpoints[bp_id] = bp
+
+                # Set in GDB if enabled
+                if enabled and self.gdb_controller:
+                    self.gdb_controller.set_breakpoint(file, line, condition)
+
+            # Update next breakpoint ID
+            if self.breakpoints:
+                self.next_breakpoint_id = max(self.breakpoints.keys()) + 1
+
+            # Load watchpoints
+            for wp_data in data.get('watchpoints', []):
+                wp_id = wp_data.get('id')
+                expression = wp_data.get('expression')
+                watch_type = wp_data.get('type', 'write')  # Note: 'type' key from to_dict()
+                enabled = wp_data.get('enabled', True)
+
+                # Create watchpoint
+                wp = Watchpoint(wp_id, expression, watch_type)
+                wp.enabled = enabled
+                self.watchpoints[wp_id] = wp
+
+                # Set in GDB if enabled
+                if enabled and self.gdb_controller:
+                    self.gdb_controller.set_watchpoint(expression, watch_type)
+
+            # Update next watchpoint ID
+            if self.watchpoints:
+                self.next_watchpoint_id = max(self.watchpoints.keys()) + 1
+
+            # Emit signals for UI updates
+            for bp in self.breakpoints.values():
+                self.breakpoint_added.emit(bp)
+
+            for wp in self.watchpoints.values():
+                self.watchpoint_added.emit(wp)
+
+            return True
+        except Exception as e:
+            return False
+
+    def save_breakpoints_to_file(self, file_path: str) -> bool:
+        """
+        Save breakpoints and watchpoints to a file.
 
         Args:
             file_path: Path to save breakpoints to
+
+        Returns:
+            True if successful, False otherwise
         """
-        # TODO: Implement breakpoint file saving
-        pass
+        try:
+            import json
+            import os
+
+            # Prepare data structure
+            data = {
+                'breakpoints': [bp.to_dict() for bp in self.breakpoints.values()],
+                'watchpoints': [wp.to_dict() for wp in self.watchpoints.values()]
+            }
+
+            # Write to file
+            with open(file_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+            return True
+        except Exception as e:
+            return False
 
     # Watchpoint management methods
     def add_watchpoint(self, expression: str, watch_type: str = "write") -> Optional[Watchpoint]:
