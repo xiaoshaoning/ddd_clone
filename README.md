@@ -109,27 +109,49 @@ main()
 
 ```
 ddd/
-├── ddd_clone/
+├── README.md                          # Project documentation
+├── CLAUDE.md                         # Project instructions for Claude Code
+├── requirements.txt                   # Python dependencies
+├── setup.py                          # Package installation configuration
+├── ddd_clone/                        # Main application package
 │   ├── __init__.py
 │   ├── main.py
-│   ├── gui/
+│   ├── gui/                          # GUI components
 │   │   ├── __init__.py
 │   │   ├── main_window.py
 │   │   ├── source_viewer.py
 │   │   ├── breakpoint_manager.py
 │   │   ├── variable_inspector.py
 │   │   └── memory_viewer.py
-│   └── gdb/
+│   │   └── line_number_area.py
+│   └── gdb/                          # GDB integration
 │       ├── __init__.py
 │       └── gdb_controller.py
-├── tests/
+├── tests/                            # Test suite
 │   ├── __init__.py
 │   ├── test_gdb_controller.py
 │   ├── test_breakpoint_manager.py
-│   └── test_variable_inspector.py
-├── requirements.txt
-├── setup.py
-└── README.md
+│   ├── test_variable_inspector.py
+│   ├── test_gui_automated.py
+│   ├── test_complete.py
+│   ├── test_gui.py
+│   ├── test_minimal.py
+│   └── test_simple.py
+├── docs/                             # Project documentation
+│   ├── it_1.txt
+│   ├── it_2.txt
+│   ├── it_3.txt
+│   ├── it_4.txt
+│   ├── it_5.txt
+│   ├── it_6.txt
+│   ├── FONT_SYNC_FIX_SUMMARY.md
+│   ├── GUI_TEST_COVERAGE_ANALYSIS.md
+│   ├── GUI_TEST_IMPROVEMENT_SUMMARY.md
+│   └── PROJECT_SUMMARY.md
+└── examples/                         # Example programs for testing
+    ├── README.md
+    ├── simple_program.c
+    └── simple_program.exe
 ```
 
 ## Development

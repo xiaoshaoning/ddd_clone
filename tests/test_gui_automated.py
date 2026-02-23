@@ -402,7 +402,7 @@ def test_demo_complete_app(qtbot):
 
         # Test GDB startup (equivalent to test_complete.py lines 42-50)
         # We mock the GDB startup
-        if mock_gdb.start_gdb("examples/simple_program.exe"):
+        if mock_gdb.start_gdb("../examples/simple_program.exe"):
             print("[OK] GDB started successfully")
             print("[INFO] Run button should now work")
             print("[INFO] You can click in the line number area to set/remove breakpoints")

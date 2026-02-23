@@ -7,8 +7,8 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication
 
-# Add current directory to path
-sys.path.insert(0, os.path.dirname(__file__))
+# Add parent directory to path (ddd_clone is in the parent)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from ddd_clone.gui.main_window import MainWindow
 from ddd_clone.gdb.gdb_controller import GDBController
@@ -25,7 +25,7 @@ def test_minimal():
     window = MainWindow(gdb_controller)
 
     # Test loading source code
-    test_file = "examples/simple_program.c"
+    test_file = "../examples/simple_program.c"
     if os.path.exists(test_file):
         try:
             window.source_viewer.load_source_file(test_file)
