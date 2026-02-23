@@ -30,7 +30,7 @@ class SourceViewer(QPlainTextEdit):
     def __init__(self):
         super().__init__()
         self.setReadOnly(True)
-        self.setFont(QFont("Courier New", 12))  # Larger font
+        self.setFont(QFont("Courier New", 18))  # Larger font
         self.current_line = -1
         self.highlighted_lines = {}
         self.current_file = None

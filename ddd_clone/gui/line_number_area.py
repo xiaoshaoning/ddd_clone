@@ -18,7 +18,7 @@ class LineNumberArea(QWidget):
     def __init__(self, source_viewer):
         super().__init__(source_viewer)
         self.source_viewer = source_viewer
-        self.setFont(QFont("Courier New", 12))  # Larger font
+        self.setFont(QFont("Courier New", 18))  # Larger font
 
     def set_font(self, font):
         """Set font for line number area and trigger repaint."""

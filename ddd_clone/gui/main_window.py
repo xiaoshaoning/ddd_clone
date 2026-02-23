@@ -100,25 +100,25 @@ class MainWindow(QMainWindow):
         # Variables tab
         self.variables_tree = QTreeWidget()
         self.variables_tree.setHeaderLabels(["Name", "Value", "Type"])
-        self.variables_tree.setFont(QFont("Arial", 11))  # Larger font
+        self.variables_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.variables_tree, "Variables")
 
         # Watch expressions tab
         self.watch_tree = QTreeWidget()
         self.watch_tree.setHeaderLabels(["Expression", "Value"])
-        self.watch_tree.setFont(QFont("Arial", 11))  # Larger font
+        self.watch_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.watch_tree, "Watch")
 
         # Breakpoints tab
         self.breakpoints_tree = QTreeWidget()
         self.breakpoints_tree.setHeaderLabels(["File", "Line", "Condition"])
-        self.breakpoints_tree.setFont(QFont("Arial", 11))  # Larger font
+        self.breakpoints_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.breakpoints_tree, "Breakpoints")
 
         # Call stack tab
         self.call_stack_tree = QTreeWidget()
         self.call_stack_tree.setHeaderLabels(["Function", "File", "Line"])
-        self.call_stack_tree.setFont(QFont("Arial", 11))  # Larger font
+        self.call_stack_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.call_stack_tree, "Call Stack")
 
         # GDB output area
@@ -132,13 +132,13 @@ class MainWindow(QMainWindow):
         # GDB command input
         self.gdb_command_input = QLineEdit()
         self.gdb_command_input.setPlaceholderText("Enter GDB command...")
-        self.gdb_command_input.setFont(QFont("Arial", 11))  # Larger font
+        self.gdb_command_input.setFont(QFont("Arial", 18))  # Larger font
         self.gdb_command_input.returnPressed.connect(self.execute_gdb_command)
         gdb_command_layout.addWidget(self.gdb_command_input)
 
         # Execute button
         self.gdb_execute_button = QPushButton("Execute")
-        self.gdb_execute_button.setFont(QFont("Arial", 11))  # Larger font
+        self.gdb_execute_button.setFont(QFont("Arial", 18))  # Larger font
         self.gdb_execute_button.clicked.connect(self.execute_gdb_command)
         gdb_command_layout.addWidget(self.gdb_execute_button)
 
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         self.gdb_output_text = QTextEdit()
         self.gdb_output_text.setReadOnly(True)
         self.gdb_output_text.setPlaceholderText("GDB output will appear here...")
-        self.gdb_output_text.setFont(QFont("Courier New", 11))  # Larger font
+        self.gdb_output_text.setFont(QFont("Courier New", 18))  # Larger font
         gdb_output_layout.addWidget(self.gdb_output_text)
 
         # Add GDB output area to splitter
