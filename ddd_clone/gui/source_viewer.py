@@ -57,6 +57,9 @@ class SourceViewer(QPlainTextEdit):
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
 
+        # Connect line number area click signal
+        self.line_number_area.line_number_clicked.connect(self.toggle_breakpoint)
+
         # Set initial line number area width
         self.update_line_number_area_width(0)
 
@@ -265,17 +268,30 @@ class SourceViewer(QPlainTextEdit):
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse clicks for breakpoint setting."""
-        # Check if click is in the breakpoint area (left portion of line number area)
+        # Debug print
+        print(f"Mouse press at: {event.pos().x()}, {event.pos().y()}, button: {event.button()}")
+        print(f"Viewport margins: {self.viewportMargins()}")
+        print(f"Contents rect: {self.contentsRect()}")
+
+        # Calculate line number area width
+        line_number_width = self.line_number_area_width()
+        print(f"Line number area width: {line_number_width}")
+
+        # Check if click is in the line number area (including breakpoint marker area)
         if (event.button() == Qt.LeftButton and
-            event.pos().x() <= 20):  # Only left 20 pixels for breakpoint clicks
+            event.pos().x() <= line_number_width):  # Click within line number area
+            print(f"Line number area clicked (x={event.pos().x()} <= {line_number_width})")
 
             # Get the line number that was clicked
             cursor = self.cursorForPosition(event.pos())
             line_number = cursor.blockNumber() + 1  # Convert to 1-based line numbers
+            print(f"Line number clicked: {line_number}")
 
             # Toggle breakpoint
             self.toggle_breakpoint(line_number)
             return  # Don't propagate the event
+        else:
+            print(f"Click outside line number area (x={event.pos().x()} > {line_number_width})")
 
         super().mousePressEvent(event)
 
@@ -332,6 +348,7 @@ class SourceViewer(QPlainTextEdit):
 
     def toggle_breakpoint(self, line_number: int):
         """Toggle breakpoint at specified line."""
+        print(f"toggle_breakpoint called for line {line_number}")
         # Emit signal first - the main window will handle actual breakpoint setting
         # The visual marker will be updated based on whether GDB successfully sets the breakpoint
         self.breakpoint_toggled.emit(line_number)

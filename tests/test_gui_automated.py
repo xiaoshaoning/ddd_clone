@@ -417,3 +417,94 @@ def test_demo_complete_app(qtbot):
     print("- Breakpoint marker at line 5")
     print("- Functional toolbar buttons")
     print("- Line number area for breakpoint setting")
+
+
+def test_breakpoint_mouse_click(qtbot):
+    """Test actual mouse click in line number area to set breakpoint."""
+    from ddd_clone.gui.main_window import MainWindow
+    from ddd_clone.gdb.gdb_controller import GDBController
+    from PyQt5.QtCore import Qt, QPoint
+
+    # Mock GDB controller
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'disconnected'}
+    mock_gdb.state_changed = Mock()
+    mock_gdb.output_received = Mock()
+    mock_gdb.set_breakpoint = Mock(return_value=True)
+    mock_gdb.delete_breakpoint = Mock(return_value=True)
+
+    # Create main window
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    # Load test file
+    import os
+    test_file = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
+    if not os.path.exists(test_file):
+        print(f"Test file not found: {test_file}")
+        return  # Skip test
+
+    window.source_viewer.load_source_file(test_file)
+    assert window.source_viewer.current_file == test_file
+
+    # Ensure widget is properly sized
+    window.resize(1000, 800)
+    qtbot.wait(100)  # Allow layout to update
+
+    # Get the source viewer
+    viewer = window.source_viewer
+
+    # Get position for line 5
+    # First, get cursor for line 5
+    cursor = viewer.cursorForPosition(QPoint(0, 0))
+    for i in range(4):  # Move to line 5 (0-based line 4)
+        cursor.movePosition(cursor.Down)
+    rect = viewer.cursorRect(cursor)
+
+    # Click in left margin (x=10, y=center of line)
+    click_x = 10  # Within left 20 pixels
+    click_y = rect.center().y()
+    click_pos = QPoint(click_x, click_y)
+
+    print(f"Clicking at position: ({click_x}, {click_y}) relative to viewer")
+    print(f"Line 5 cursor rect: {rect}")
+
+    # Simulate mouse click
+    qtbot.mouseClick(viewer, Qt.LeftButton, pos=click_pos)
+
+    # Wait for signal processing
+    qtbot.wait(100)
+
+    # Debug: print current state
+    print(f"After qtbot.mouseClick - breakpoint_lines: {viewer.breakpoint_lines}")
+    print(f"Viewer viewport margins: {viewer.viewportMargins()}")
+    print(f"Line number area width: {viewer.line_number_area_width()}")
+    print(f"Line number area geometry: {viewer.line_number_area.geometry() if viewer.line_number_area else 'None'}")
+    print(f"Click position in viewer coordinates: {click_pos}")
+
+    # Try direct mouse event as well
+    from PyQt5.QtGui import QMouseEvent
+    event = QMouseEvent(
+        QMouseEvent.MouseButtonPress,
+        click_pos,
+        Qt.LeftButton,
+        Qt.LeftButton,
+        Qt.NoModifier
+    )
+    print("Directly calling viewer.mousePressEvent...")
+    viewer.mousePressEvent(event)
+    qtbot.wait(50)
+
+    # Check if breakpoint visual marker was added
+    assert 5 in viewer.breakpoint_lines, f"Breakpoint not added. Current breakpoint lines: {viewer.breakpoint_lines}"
+
+    # Check if GDB was called to set breakpoint
+    assert mock_gdb.set_breakpoint.called, "GDB set_breakpoint was not called"
+
+    # Verify the call arguments
+    call_args = mock_gdb.set_breakpoint.call_args
+    assert call_args[0][0] == test_file, f"File argument mismatch: {call_args[0][0]}"
+    assert call_args[0][1] == 5, f"Line argument mismatch: {call_args[0][1]}"
+
+    print(f"[OK] Breakpoint successfully set via mouse click at line 5")
+    print(f"[OK] GDB set_breakpoint called with: {call_args}")

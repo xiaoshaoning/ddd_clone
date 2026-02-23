@@ -3,14 +3,17 @@ Line number area for source viewer.
 """
 
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QPainter, QFont, QColor, QBrush
+from PyQt5.QtCore import Qt, QRect, pyqtSignal
+from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent
 
 
 class LineNumberArea(QWidget):
     """
     Widget that displays line numbers for the source viewer.
     """
+
+    # Signal emitted when line number area is clicked
+    line_number_clicked = pyqtSignal(int)  # line_number
 
     def __init__(self, source_viewer):
         super().__init__(source_viewer)
@@ -20,6 +23,37 @@ class LineNumberArea(QWidget):
     def sizeHint(self):
         """Return the preferred size of the line number area."""
         return self.source_viewer.line_number_area_width(), 0
+
+    def mousePressEvent(self, event: QMouseEvent):
+        """Handle mouse clicks in the line number area."""
+        if event.button() == Qt.LeftButton:
+            # Calculate which line was clicked based on y coordinate
+            y_pos = event.pos().y()
+
+            # Find the line number at this y position
+            block = self.source_viewer.firstVisibleBlock()
+            block_number = block.blockNumber()
+            top = self.source_viewer.blockBoundingGeometry(block).translated(
+                self.source_viewer.contentOffset()).top()
+            bottom = top + self.source_viewer.blockBoundingRect(block).height()
+
+            line_number = -1
+            while block.isValid() and top <= y_pos:
+                if bottom >= y_pos:
+                    line_number = block_number + 1  # Convert to 1-based
+                    break
+
+                block = block.next()
+                top = bottom
+                bottom = top + self.source_viewer.blockBoundingRect(block).height()
+                block_number += 1
+
+            if line_number > 0:
+                print(f"[LineNumberArea] Click detected at line {line_number}")
+                self.line_number_clicked.emit(line_number)
+                return  # Event handled
+
+        super().mousePressEvent(event)
 
     def paintEvent(self, event):
         """Paint the line numbers and breakpoint markers."""

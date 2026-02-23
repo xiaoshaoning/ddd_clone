@@ -523,8 +523,13 @@ class MainWindow(QMainWindow):
 
     def handle_breakpoint_toggle(self, line_number: int):
         """Handle breakpoint toggle from source viewer."""
+        print(f"handle_breakpoint_toggle called for line {line_number}")
+        print(f"GDB controller state: {self.gdb_controller.current_state}")
+
         if hasattr(self.source_viewer, 'current_file') and self.source_viewer.current_file:
             current_file = self.source_viewer.current_file
+            print(f"Current file: {current_file}")
+            print(f"File exists: {os.path.exists(current_file)}")
 
             # Check if breakpoint already exists at this location
             existing_bp = None
@@ -536,6 +541,7 @@ class MainWindow(QMainWindow):
 
             if existing_bp:
                 # Remove existing breakpoint
+                print(f"Removing existing breakpoint ID {existing_bp.breakpoint_id}")
                 if self.breakpoint_manager.remove_breakpoint(existing_bp.breakpoint_id):
                     # Only remove visual marker if GDB successfully removed the breakpoint
                     self.source_viewer.remove_breakpoint_marker(line_number)
@@ -544,13 +550,22 @@ class MainWindow(QMainWindow):
                     print(f"Failed to remove breakpoint at {current_file}:{line_number}")
             else:
                 # Add new breakpoint
+                print(f"Adding new breakpoint at {current_file}:{line_number}")
                 bp = self.breakpoint_manager.add_breakpoint(current_file, line_number)
                 if bp:
                     # Only add visual marker if GDB successfully set the breakpoint
                     self.source_viewer.add_breakpoint_marker(line_number)
                     print(f"Breakpoint set at {current_file}:{line_number}")
+                    print(f"Breakpoint ID: {bp.breakpoint_id}")
                 else:
                     print(f"Failed to set breakpoint at {current_file}:{line_number} - no executable code at this location")
+                    print(f"This could be because:")
+                    print(f"1. GDB is not running")
+                    print(f"2. The program is not loaded")
+                    print(f"3. The line has no executable code (e.g., comment or empty line)")
+        else:
+            print(f"Cannot set breakpoint: no source file loaded (current_file: {getattr(self.source_viewer, 'current_file', 'NOT SET')})")
+            print(f"Please load a program first using File -> Open Program")
 
     def handle_variable_hover(self, variable_name: str):
         """Handle variable hover and query GDB for variable value."""
