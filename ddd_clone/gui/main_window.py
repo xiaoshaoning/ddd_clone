@@ -248,8 +248,8 @@ class MainWindow(QMainWindow):
             # Check current state to decide whether to run or continue
             current_state = self.gdb_controller.current_state['state']
 
-            if current_state == 'disconnected' or current_state == 'connected':
-                # Program not started yet - run it
+            if current_state == 'disconnected' or current_state == 'connected' or current_state == 'exited':
+                # Program not started yet or has exited - run it
                 if self.gdb_controller.run():
                     self.status_label.setText("Running program...")
                 else:
@@ -260,9 +260,12 @@ class MainWindow(QMainWindow):
                     self.status_label.setText("Continuing execution...")
                 else:
                     QMessageBox.critical(self, "Error", "Failed to continue execution")
-            else:
+            elif current_state == 'running':
                 # Program is already running
                 pass
+            else:
+                # Unknown state
+                QMessageBox.warning(self, "Warning", f"Cannot run/continue in state: {current_state}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to run/continue program: {e}")
