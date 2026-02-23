@@ -371,6 +371,7 @@ class MainWindow(QMainWindow):
 
     def _clean_gdb_output(self, output: str) -> str:
         """Clean GDB/MI output by removing prefixes and formatting."""
+        import re
         # Remove GDB/MI prefixes like ~, =, ^, &, etc.
         if output.startswith('~'):
             # Remove ~" and trailing quote
@@ -387,6 +388,8 @@ class MainWindow(QMainWindow):
                 return ""
             # Remove ANSI escape codes
             cleaned = self._remove_ansi_escape_codes(cleaned)
+            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
+            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
             return cleaned
         elif output.startswith('&'):
             # Remove &" and trailing quote
@@ -403,6 +406,8 @@ class MainWindow(QMainWindow):
                 return ""
             # Remove ANSI escape codes
             cleaned = self._remove_ansi_escape_codes(cleaned)
+            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
+            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
             return cleaned
         elif output.startswith('='):
             # Skip MI result records for now
@@ -423,12 +428,17 @@ class MainWindow(QMainWindow):
                 return ""
             # Remove ANSI escape codes
             cleaned = self._remove_ansi_escape_codes(cleaned)
+            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
+            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
             return cleaned
         else:
             # Return other output as-is
             cleaned = output.strip()
             # Remove single quotes if they wrap the entire output
             if cleaned.startswith("'") and cleaned.endswith("'"):
+                cleaned = cleaned[1:-1]
+            # Remove double quotes if they wrap the entire output
+            if cleaned.startswith('"') and cleaned.endswith('"'):
                 cleaned = cleaned[1:-1]
             # Remove escaped quotes and backslashes
             cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
@@ -437,6 +447,8 @@ class MainWindow(QMainWindow):
                 return ""
             # Remove ANSI escape codes
             cleaned = self._remove_ansi_escape_codes(cleaned)
+            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
+            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
             return cleaned
 
     def _should_filter_output(self, output: str) -> bool:
