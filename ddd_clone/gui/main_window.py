@@ -162,29 +162,38 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(toolbar)
 
+        # Create font for toolbar actions
+        toolbar_font = QFont("Arial", 18)
+
         # Load program action
         load_action = QAction("Load", self)
+        load_action.setFont(toolbar_font)
         load_action.triggered.connect(self.open_program)
         toolbar.addAction(load_action)
 
         # Debug actions
         run_action = QAction("Run/Continue", self)
+        run_action.setFont(toolbar_font)
         run_action.triggered.connect(self.run_or_continue)
         toolbar.addAction(run_action)
 
         pause_action = QAction("Pause", self)
+        pause_action.setFont(toolbar_font)
         pause_action.triggered.connect(self.pause_program)
         toolbar.addAction(pause_action)
 
         step_over_action = QAction("Step Over", self)
+        step_over_action.setFont(toolbar_font)
         step_over_action.triggered.connect(self.step_over)
         toolbar.addAction(step_over_action)
 
         step_into_action = QAction("Step Into", self)
+        step_into_action.setFont(toolbar_font)
         step_into_action.triggered.connect(self.step_into)
         toolbar.addAction(step_into_action)
 
         step_out_action = QAction("Step Out", self)
+        step_out_action.setFont(toolbar_font)
         step_out_action.triggered.connect(self.step_out)
         toolbar.addAction(step_out_action)
 
