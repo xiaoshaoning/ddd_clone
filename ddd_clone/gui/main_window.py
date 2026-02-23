@@ -355,6 +355,13 @@ class MainWindow(QMainWindow):
             # Remove single quotes if they wrap the entire output
             if cleaned.startswith("'") and cleaned.endswith("'"):
                 cleaned = cleaned[1:-1]
+            # Remove escaped quotes and backslashes
+            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
+            # Filter out common noise messages
+            if self._should_filter_output(cleaned):
+                return ""
+            # Remove ANSI escape codes
+            cleaned = self._remove_ansi_escape_codes(cleaned)
             return cleaned
         elif output.startswith('&'):
             # Remove &" and trailing quote
@@ -364,6 +371,13 @@ class MainWindow(QMainWindow):
             # Remove single quotes if they wrap the entire output
             if cleaned.startswith("'") and cleaned.endswith("'"):
                 cleaned = cleaned[1:-1]
+            # Remove escaped quotes and backslashes
+            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
+            # Filter out common noise messages
+            if self._should_filter_output(cleaned):
+                return ""
+            # Remove ANSI escape codes
+            cleaned = self._remove_ansi_escape_codes(cleaned)
             return cleaned
         elif output.startswith('='):
             # Skip MI result records for now
@@ -376,14 +390,106 @@ class MainWindow(QMainWindow):
             return ""
         elif output.startswith('*'):
             # Handle async output like *running
-            return output[1:].strip()
+            cleaned = output[1:].strip()
+            # Remove escaped quotes and backslashes
+            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
+            # Filter out common noise messages
+            if self._should_filter_output(cleaned):
+                return ""
+            # Remove ANSI escape codes
+            cleaned = self._remove_ansi_escape_codes(cleaned)
+            return cleaned
         else:
             # Return other output as-is
             cleaned = output.strip()
             # Remove single quotes if they wrap the entire output
             if cleaned.startswith("'") and cleaned.endswith("'"):
                 cleaned = cleaned[1:-1]
+            # Remove escaped quotes and backslashes
+            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
+            # Filter out common noise messages
+            if self._should_filter_output(cleaned):
+                return ""
+            # Remove ANSI escape codes
+            cleaned = self._remove_ansi_escape_codes(cleaned)
             return cleaned
+
+    def _should_filter_output(self, output: str) -> bool:
+        """Check if output should be filtered out as noise."""
+        if not output:
+            return True
+
+        # Common noise patterns (case-insensitive)
+        noise_patterns = [
+            r'^GNU gdb.*',
+            r'^Copyright.*',
+            r'^License GPL.*',
+            r'^This is free software.*',
+            r'^There is NO WARRANTY.*',
+            r'^Type.*show copying.*',
+            r'^Type.*show warranty.*',
+            r'^This GDB was configured as.*',
+            r'^Type.*show configuration.*',
+            r'^For bug reporting instructions.*',
+            r'^Find the GDB manual.*',
+            r'^For help, type.*',
+            r'^Type.*apropos word.*',
+            r'^\s*$',  # Empty or whitespace-only lines
+            # URLs related to GDB documentation and bug reporting
+            r'^<https?://.*gnu\.org/software/gdb.*>.*',
+            r'^<https?://www\.gnu\.org/software/gdb.*>.*',
+            # General GDB info URLs
+            r'^<https?://.*gnu\.org/licenses/.*>.*',
+            # Lines that are just URLs in angle brackets
+            r'^<[^>]*>\s*\.?$',
+            # Incomplete lines from split output
+            r'^Type\s*".*',
+            r'^show copying.*',
+            r'^<".*',
+            r'.*gnu\.org/software/gdb.*',
+            r'^".*',  # Lines that start with a quote
+            # GDB/MI asynchronous notifications (technical details)
+            r'^\*?running,thread-id=.*',
+            r'^\*?stopped,reason=.*',
+            r'^\*?breakpoint-hit,.*',
+            r'^\*?thread-created,.*',
+            r'^\*?thread-exited,.*',
+            r'^\*?library-loaded,.*',
+            r'^\*?library-unloaded,.*',
+            # GDB/MI status messages with technical parameters
+            r'.*thread-id="\d+".*',
+            r'.*frame=\{.*',
+            r'.*stopped-threads=.*',
+            r'.*arch=".*".*',
+        ]
+
+        import re
+        for pattern in noise_patterns:
+            if re.match(pattern, output, re.IGNORECASE):
+                return True
+
+        # Also filter lines that are just punctuation or very short noise
+        if re.match(r'^[\s\"\'\\]*$', output):
+            return True
+
+        return False
+
+    def _remove_ansi_escape_codes(self, text: str) -> str:
+        """Remove ANSI escape sequences from text."""
+        import re
+        # 7-bit C1 ANSI sequences
+        ansi_escape = re.compile(r'''
+            \x1B  # ESC
+            (?:   # 7-bit C1 Fe (except CSI)
+                [@-Z\\-_]
+            |     # or [ for CSI, followed by a control sequence
+                \[
+                [0-?]*  # Parameter bytes
+                [ -/]*  # Intermediate bytes
+                [@-~]   # Final byte
+            )
+        ''', re.VERBOSE)
+        return ansi_escape.sub('', text)
 
     def _handle_breakpoint_output(self, output: str):
         """Handle GDB output related to breakpoint creation."""
