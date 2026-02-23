@@ -254,6 +254,162 @@ class TestGDBController(unittest.TestCase):
         # Should skip invalid hex and return valid bytes
         self.assertEqual(result, b'B')
 
+    def test_set_watchpoint(self):
+        """Test setting watchpoints."""
+        self.controller.send_command = Mock(return_value=True)
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        # Test setting write watchpoint (default)
+        result = self.controller.set_watchpoint("x")
+        self.assertTrue(result)
+        self.controller.send_command.assert_called_with("-break-watch -w x")
+
+        # Test setting read watchpoint
+        result = self.controller.set_watchpoint("y", "read")
+        self.assertTrue(result)
+        self.controller.send_command.assert_called_with("-break-watch -r y")
+
+        # Test setting access watchpoint
+        result = self.controller.set_watchpoint("z", "access")
+        self.assertTrue(result)
+        self.controller.send_command.assert_called_with("-break-watch -a z")
+
+        # Test with invalid watch type (should default to write)
+        result = self.controller.set_watchpoint("w", "invalid")
+        self.assertTrue(result)
+        self.controller.send_command.assert_called_with("-break-watch -w w")
+
+    def test_set_watchpoint_no_process(self):
+        """Test setting watchpoint when no GDB process."""
+        self.controller.gdb_process = None
+        self.controller.send_command = Mock(return_value=False)
+
+        result = self.controller.set_watchpoint("x")
+        self.assertFalse(result)
+        # send_command should still be called and return False
+        self.controller.send_command.assert_called_with("-break-watch -w x")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_registers(self, mock_send_mi):
+        """Test getting register names."""
+        # Mock response
+        mock_response = ('^', 'done,register-names=["eax","ebx","ecx"]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        registers = self.controller.get_registers()
+
+        # Verify result
+        self.assertEqual(len(registers), 3)
+        self.assertEqual(registers[0]['number'], '0')
+        self.assertEqual(registers[0]['name'], 'eax')
+        self.assertEqual(registers[1]['number'], '1')
+        self.assertEqual(registers[1]['name'], 'ebx')
+        self.assertEqual(registers[2]['number'], '2')
+        self.assertEqual(registers[2]['name'], 'ecx')
+        mock_send_mi.assert_called_with("-data-list-register-names")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_registers_error_response(self, mock_send_mi):
+        """Test getting registers with error response."""
+        # Mock error response
+        mock_response = ('^', 'error,msg="Failed"')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        registers = self.controller.get_registers()
+        self.assertEqual(registers, [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_registers_invalid_response(self, mock_send_mi):
+        """Test getting registers with invalid response format."""
+        # Mock invalid response
+        mock_response = ('*', 'async-output')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        registers = self.controller.get_registers()
+        self.assertEqual(registers, [])
+
+    def test_get_registers_no_process(self):
+        """Test getting registers when no GDB process."""
+        self.controller.gdb_process = None
+        registers = self.controller.get_registers()
+        self.assertEqual(registers, [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_register_values(self, mock_send_mi):
+        """Test getting register values."""
+        # Mock response
+        mock_response = ('^', 'done,register-values=[{number="0",value="0x1234"},{number="1",value="0x5678"}]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        registers = self.controller.get_register_values()
+
+        # Verify result
+        self.assertEqual(len(registers), 2)
+        self.assertEqual(registers[0]['number'], '0')
+        self.assertEqual(registers[0]['value'], '0x1234')
+        self.assertEqual(registers[1]['number'], '1')
+        self.assertEqual(registers[1]['value'], '0x5678')
+        mock_send_mi.assert_called_with("-data-list-register-values x")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_register_values_different_formats(self, mock_send_mi):
+        """Test getting register values with different formats."""
+        # Mock response for decimal format
+        mock_response = ('^', 'done,register-values=[{number="0",value="4660"}]')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        # Test hex format (default)
+        registers = self.controller.get_register_values("x")
+        self.assertEqual(registers[0]['value'], '4660')
+        mock_send_mi.assert_called_with("-data-list-register-values x")
+
+        # Test decimal format
+        mock_send_mi.return_value = ('^', 'done,register-values=[{number="0",value="4660"}]')
+        registers = self.controller.get_register_values("d")
+        self.assertEqual(registers[0]['value'], '4660')
+        mock_send_mi.assert_called_with("-data-list-register-values d")
+
+        # Test octal format
+        mock_send_mi.return_value = ('^', 'done,register-values=[{number="0",value="11064"}]')
+        registers = self.controller.get_register_values("o")
+        self.assertEqual(registers[0]['value'], '11064')
+        mock_send_mi.assert_called_with("-data-list-register-values o")
+
+        # Test binary format
+        mock_send_mi.return_value = ('^', 'done,register-values=[{number="0",value="1001001000100"}]')
+        registers = self.controller.get_register_values("t")
+        self.assertEqual(registers[0]['value'], '1001001000100')
+        mock_send_mi.assert_called_with("-data-list-register-values t")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_register_values_error_response(self, mock_send_mi):
+        """Test getting register values with error response."""
+        # Mock error response
+        mock_response = ('^', 'error,msg="Failed"')
+        mock_send_mi.return_value = mock_response
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        registers = self.controller.get_register_values()
+        self.assertEqual(registers, [])
+
+    def test_get_register_values_no_process(self):
+        """Test getting register values when no GDB process."""
+        self.controller.gdb_process = None
+        registers = self.controller.get_register_values()
+        self.assertEqual(registers, [])
+
 
 if __name__ == '__main__':
     unittest.main()

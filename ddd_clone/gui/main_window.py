@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
     QAction, QStatusBar, QLabel, QMessageBox, QMenuBar, QMenu, QFileDialog,
-    QLineEdit, QPushButton, QHBoxLayout, QToolTip
+    QLineEdit, QPushButton, QHBoxLayout, QToolTip, QDialog, QComboBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont
@@ -118,6 +118,18 @@ class MainWindow(QMainWindow):
         self.breakpoints_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.breakpoints_tree, "Breakpoints")
 
+        # Watchpoints tab
+        self.watchpoints_tree = QTreeWidget()
+        self.watchpoints_tree.setHeaderLabels(["Expression", "Type", "Enabled"])
+        self.watchpoints_tree.setFont(QFont("Arial", 18))  # Larger font
+        tab_widget.addTab(self.watchpoints_tree, "Watchpoints")
+
+        # Registers tab
+        self.registers_tree = QTreeWidget()
+        self.registers_tree.setHeaderLabels(["Name", "Number", "Value"])
+        self.registers_tree.setFont(QFont("Arial", 18))  # Larger font
+        tab_widget.addTab(self.registers_tree, "Registers")
+
         # Call stack tab
         self.call_stack_tree = QTreeWidget()
         self.call_stack_tree.setHeaderLabels(["Function", "File", "Line"])
@@ -205,6 +217,15 @@ class MainWindow(QMainWindow):
         step_out_action.triggered.connect(self.step_out)
         toolbar.addAction(step_out_action)
 
+        # Add separator
+        toolbar.addSeparator()
+
+        # Watchpoint actions
+        add_watchpoint_action = QAction("Add Watchpoint", self)
+        add_watchpoint_action.setFont(toolbar_font)
+        add_watchpoint_action.triggered.connect(self.add_watchpoint_dialog)
+        toolbar.addAction(add_watchpoint_action)
+
     def create_menu_bar(self) -> None:
         """Create the menu bar."""
         menu_bar = QMenuBar(self)
@@ -244,6 +265,11 @@ class MainWindow(QMainWindow):
         # Connect source viewer signals
         self.source_viewer.breakpoint_toggled.connect(self.handle_breakpoint_toggle)
         self.source_viewer.variable_hovered.connect(self.handle_variable_hover)
+
+        # Connect breakpoint manager signals
+        self.breakpoint_manager.watchpoint_added.connect(self._update_watchpoints_tree)
+        self.breakpoint_manager.watchpoint_removed.connect(self._update_watchpoints_tree)
+        self.breakpoint_manager.watchpoint_updated.connect(self._update_watchpoints_tree)
 
     def run_or_continue(self) -> None:
         """Run program (if not started) or continue execution (if paused)."""
@@ -350,6 +376,10 @@ class MainWindow(QMainWindow):
                 self.current_file_label.setText(f"{state_info['file']}:??")
             else:
                 self.current_file_label.setText("No file loaded")
+
+        # Update registers when program is stopped
+        if state == 'stopped':
+            self._update_registers_tree()
 
     def handle_gdb_output(self, output: str) -> None:
         """Handle output received from GDB."""
@@ -631,6 +661,96 @@ class MainWindow(QMainWindow):
         """Update the tooltip with the actual variable value."""
         # Update the source viewer with the variable value and update tooltip
         self.source_viewer.update_variable_tooltip(variable_name, value)
+
+    def _update_watchpoints_tree(self) -> None:
+        """Update the watchpoints tree with current watchpoints."""
+        self.watchpoints_tree.clear()
+        watchpoints = self.breakpoint_manager.get_watchpoints()
+        for wp in watchpoints:
+            item = QTreeWidgetItem(self.watchpoints_tree)
+            item.setText(0, wp.expression)
+            item.setText(1, wp.watch_type)
+            item.setText(2, "Yes" if wp.enabled else "No")
+            # Store watchpoint ID in the item
+            item.setData(0, Qt.UserRole, wp.watchpoint_id)
+
+    def _update_registers_tree(self) -> None:
+        """Update the registers tree with current register values."""
+        self.registers_tree.clear()
+        # Get register names
+        registers = self.gdb_controller.get_registers()
+        # Get register values (in hex format by default)
+        values = self.gdb_controller.get_register_values("x")
+
+        # Create a mapping of register number to value for quick lookup
+        value_map = {v.get('number', ''): v.get('value', '') for v in values}
+
+        for reg in registers:
+            item = QTreeWidgetItem(self.registers_tree)
+            item.setText(0, reg.get('name', ''))
+            item.setText(1, reg.get('number', ''))
+            item.setText(2, value_map.get(reg.get('number', ''), 'N/A'))
+
+    def add_watchpoint_dialog(self) -> None:
+        """Show dialog to add a new watchpoint."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Watchpoint")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+
+        # Expression input
+        expression_layout = QHBoxLayout()
+        expression_label = QLabel("Expression:")
+        expression_label.setFont(QFont("Arial", 14))
+        expression_input = QLineEdit()
+        expression_input.setFont(QFont("Arial", 14))
+        expression_input.setPlaceholderText("e.g., variable_name, *0x1234")
+        expression_layout.addWidget(expression_label)
+        expression_layout.addWidget(expression_input)
+        layout.addLayout(expression_layout)
+
+        # Type selection
+        type_layout = QHBoxLayout()
+        type_label = QLabel("Type:")
+        type_label.setFont(QFont("Arial", 14))
+        type_combo = QComboBox()
+        type_combo.setFont(QFont("Arial", 14))
+        type_combo.addItems(["write", "read", "access"])
+        type_layout.addWidget(type_label)
+        type_layout.addWidget(type_combo)
+        layout.addLayout(type_layout)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        add_button = QPushButton("Add")
+        add_button.setFont(QFont("Arial", 14))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setFont(QFont("Arial", 14))
+
+        add_button.clicked.connect(lambda: self._add_watchpoint_from_dialog(
+            expression_input.text(), type_combo.currentText(), dialog))
+        cancel_button.clicked.connect(dialog.reject)
+
+        button_layout.addWidget(add_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+
+        dialog.exec_()
+
+    def _add_watchpoint_from_dialog(self, expression: str, watch_type: str, dialog: QDialog) -> None:
+        """Add watchpoint from dialog input."""
+        if not expression.strip():
+            QMessageBox.warning(self, "Warning", "Expression cannot be empty")
+            return
+
+        watchpoint = self.breakpoint_manager.add_watchpoint(expression.strip(), watch_type)
+        if watchpoint:
+            dialog.accept()
+        else:
+            QMessageBox.critical(self, "Error", f"Failed to set watchpoint on '{expression}'")
 
     def load_initial_source(self, program_path: str) -> None:
         # For now, try to load the corresponding C file
