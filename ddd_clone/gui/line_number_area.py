@@ -33,16 +33,36 @@ class LineNumberArea(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse clicks in the line number area."""
         if event.button() == Qt.LeftButton:
-            # Convert click position to source viewer coordinates
-            viewer_pos = self.source_viewer.mapFrom(self, event.pos())
-            # Get cursor at this position
-            cursor = self.source_viewer.cursorForPosition(viewer_pos)
-            line_number = cursor.blockNumber() + 1  # Convert to 1-based
+            try:
+                # Get click position relative to this widget
+                pos_in_self = event.pos()
 
-            if line_number > 0:
-                self.line_number_clicked.emit(line_number)
-                return  # Event handled
+                # Map the position to the source viewer's coordinate system
+                # This accounts for the line number area's position within the source viewer
+                viewer_pos = self.mapTo(self.source_viewer, pos_in_self)
 
+                # Get cursor at this position in the source viewer
+                cursor = self.source_viewer.cursorForPosition(viewer_pos)
+                if not cursor:
+                    raise ValueError("Invalid cursor")
+
+                # Get the block and ensure it's valid
+                block = cursor.block()
+                if not block.isValid():
+                    raise ValueError("Invalid block")
+
+                line_number = block.blockNumber() + 1  # Convert to 1-based
+
+                if line_number > 0:
+                    self.line_number_clicked.emit(line_number)
+                    event.accept()  # Mark event as handled
+                    return  # Event handled
+            except Exception as e:
+                # If anything goes wrong, fall back to default behavior
+                print(f"Error in line number area mousePressEvent: {e}")
+                pass
+
+        # Call super for non-left button clicks, invalid line numbers, or errors
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
@@ -79,6 +99,10 @@ class LineNumberArea(QWidget):
 
             line_number = block.blockNumber() + 1
 
+            # Convert to integers for drawing
+            top_int = int(top)
+            block_height_int = int(block_height)
+
             # Draw breakpoint marker if this line has a breakpoint
             if line_number in self.source_viewer.breakpoint_lines:
                 # Draw red circle for breakpoint (left of line numbers)
@@ -86,13 +110,13 @@ class LineNumberArea(QWidget):
                 painter.setPen(Qt.NoPen)
                 marker_size = 8
                 marker_x = 6  # Position to the left of line numbers
-                marker_y = int(top) + (block_height - marker_size) // 2
+                marker_y = top_int + (block_height_int - marker_size) // 2
                 painter.drawEllipse(marker_x, marker_y, marker_size, marker_size)
 
             # Draw line number
             number = str(line_number)
             painter.setPen(Qt.black)
-            rect = QRect(0, int(top), self.width() - 5, int(block_height))
+            rect = QRect(0, top_int, self.width() - 5, block_height_int)
             painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
             block = block.next()

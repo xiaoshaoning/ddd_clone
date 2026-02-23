@@ -256,7 +256,7 @@ class SourceViewer(QTextEdit):
         self.highlighted_lines[line_number] = highlight_format
 
         # Scroll to the highlighted line
-        self.centerCursor()
+        self.ensureCursorVisible()
 
         # Emit signal
         self.current_line_changed.emit(line_number)
@@ -333,15 +333,33 @@ class SourceViewer(QTextEdit):
         if (event.button() == Qt.LeftButton and
             event.pos().x() <= line_number_width):  # Click within line number area
 
-            # Get the line number that was clicked
-            cursor = self.cursorForPosition(event.pos())
-            line_number = cursor.blockNumber() + 1  # Convert to 1-based line numbers
+            try:
+                # Get the line number that was clicked
+                cursor = self.cursorForPosition(event.pos())
+                if not cursor:
+                    # Try to adjust coordinates for viewport margins
+                    # cursorForPosition expects viewport coordinates
+                    # event.pos() is relative to widget, need to map to viewport
+                    viewport_pos = self.viewport().mapFrom(self, event.pos())
+                    cursor = self.cursorForPosition(viewport_pos)
+                    if not cursor:
+                        raise ValueError("Invalid cursor")
 
-            # Toggle breakpoint
-            self.toggle_breakpoint(line_number)
-            return  # Don't propagate the event
-        else:
-            pass  # Click outside line number area
+                # Get the block and ensure it's valid
+                block = cursor.block()
+                if not block.isValid():
+                    raise ValueError("Invalid block")
+
+                line_number = block.blockNumber() + 1  # Convert to 1-based line numbers
+
+                # Toggle breakpoint
+                self.toggle_breakpoint(line_number)
+                event.accept()  # Mark event as handled
+                return  # Don't propagate the event
+            except Exception as e:
+                # If anything goes wrong, fall back to default behavior
+                print(f"Error in source viewer mousePressEvent: {e}")
+                pass
 
         super().mousePressEvent(event)
 
@@ -535,7 +553,14 @@ class SourceViewer(QTextEdit):
 
     def update_line_number_area_width(self, _):
         """Update the line number area width."""
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+        width = self.line_number_area_width()
+        self.setViewportMargins(width, 0, 0, 0)
+        # Also update line number area geometry
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(
+            cr.left(), cr.top(),
+            width, cr.height()
+        )
 
     def update_line_number_area(self, rect, dy):
         """Update the line number area."""
