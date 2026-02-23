@@ -147,6 +147,11 @@ class MainWindow(QMainWindow):
         self.gdb_output_text.setReadOnly(True)
         self.gdb_output_text.setPlaceholderText("GDB output will appear here...")
         self.gdb_output_text.setFont(QFont("Courier New", 18))  # Larger font
+
+        # Enable context menu for GDB output text area
+        self.gdb_output_text.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.gdb_output_text.customContextMenuRequested.connect(self._show_gdb_output_context_menu)
+
         gdb_output_layout.addWidget(self.gdb_output_text)
 
         # Add GDB output area to splitter
@@ -725,3 +730,19 @@ class MainWindow(QMainWindow):
                 self.pending_variable_queries[variable_name] = True
         except Exception as e:
             pass  # Silent error handling
+
+    def _show_gdb_output_context_menu(self, position):
+        """Show context menu for GDB output text area."""
+        menu = QMenu(self.gdb_output_text)
+
+        # Add Clear action
+        clear_action = QAction("Clear", self.gdb_output_text)
+        clear_action.triggered.connect(self._clear_gdb_output)
+        menu.addAction(clear_action)
+
+        # Show the menu at the cursor position
+        menu.exec_(self.gdb_output_text.viewport().mapToGlobal(position))
+
+    def _clear_gdb_output(self):
+        """Clear the GDB output text area."""
+        self.gdb_output_text.clear()
