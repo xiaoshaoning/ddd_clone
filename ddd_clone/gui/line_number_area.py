@@ -20,6 +20,12 @@ class LineNumberArea(QWidget):
         self.source_viewer = source_viewer
         self.setFont(QFont("Courier New", 12))  # Larger font
 
+    def set_font(self, font):
+        """Set font for line number area and trigger repaint."""
+        self.setFont(font)
+        self.update()
+        self.repaint()  # Force immediate repaint
+
     def sizeHint(self):
         """Return the preferred size of the line number area."""
         return self.source_viewer.line_number_area_width(), 0
@@ -57,6 +63,8 @@ class LineNumberArea(QWidget):
     def paintEvent(self, event):
         """Paint the line numbers and breakpoint markers."""
         painter = QPainter(self)
+        # Explicitly set the painter font to ensure it uses our font
+        painter.setFont(self.font())
         painter.fillRect(event.rect(), QColor(240, 240, 240))
 
         block = self.source_viewer.firstVisibleBlock()
@@ -69,6 +77,9 @@ class LineNumberArea(QWidget):
             if block.isVisible() and bottom >= event.rect().top():
                 line_number = block_number + 1
 
+                # Calculate block height for vertical alignment
+                block_height = int(bottom - top)
+
                 # Draw breakpoint marker if this line has a breakpoint
                 if line_number in self.source_viewer.breakpoint_lines:
                     # Draw red circle for breakpoint (left of line numbers)
@@ -76,16 +87,22 @@ class LineNumberArea(QWidget):
                     painter.setPen(Qt.NoPen)
                     marker_size = 8
                     marker_x = 6  # Position to the left of line numbers
-                    marker_y = int(top) + (self.fontMetrics().height() - marker_size) // 2
+                    marker_y = int(top) + (block_height - marker_size) // 2
                     painter.drawEllipse(marker_x, marker_y, marker_size, marker_size)
 
                 # Draw line number
                 number = str(line_number)
                 painter.setPen(Qt.black)
-                rect = QRect(0, int(top), self.width() - 5, self.fontMetrics().height())
-                painter.drawText(rect, Qt.AlignRight, number)
+                rect = QRect(0, int(top), self.width() - 5, block_height)
+                painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
             block = block.next()
             top = bottom
             bottom = top + self.source_viewer.blockBoundingRect(block).height()
             block_number += 1
+
+    def changeEvent(self, event):
+        """Handle change events, including font changes."""
+        if event.type() == event.FontChange:
+            self.update()
+        super().changeEvent(event)

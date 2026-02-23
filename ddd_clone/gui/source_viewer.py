@@ -71,6 +71,41 @@ class SourceViewer(QPlainTextEdit):
         # Set initial line number area width
         self.update_line_number_area_width(0)
 
+    def change_font_size(self, delta: int):
+        """
+        Change font size by delta (positive to increase, negative to decrease).
+
+        Args:
+            delta: Change in font size (e.g., +1 to increase, -1 to decrease)
+        """
+        current_font = self.font()
+        current_size = current_font.pointSize()
+        new_size = max(8, current_size + delta)  # Minimum size 8
+
+        if new_size != current_size:
+            # Create new font by copying current font and changing size
+            new_font = QFont(current_font)
+            new_font.setPointSize(new_size)
+
+            # Update source viewer font
+            self.setFont(new_font)
+
+            # Update line number area font
+            self.line_number_area.set_font(new_font)
+
+            # Update line number area width
+            self.update_line_number_area_width(0)
+
+            # Update line number area geometry
+            cr = self.contentsRect()
+            self.line_number_area.setGeometry(
+                cr.left(), cr.top(),
+                self.line_number_area_width(), cr.height()
+            )
+
+            # Trigger repaint of line number area
+            self.line_number_area.update()
+
     def load_source_file(self, file_path: str, current_line: int = -1):
         """
         Load and display a source file.
@@ -294,6 +329,23 @@ class SourceViewer(QPlainTextEdit):
             pass  # Click outside line number area
 
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for font size adjustment."""
+        # Check for Ctrl+ or Ctrl- (usually Ctrl+= and Ctrl+-)
+        if event.modifiers() & Qt.ControlModifier:
+            if event.key() == Qt.Key_Equal or event.key() == Qt.Key_Plus:
+                # Increase font size (Ctrl+ or Ctrl+=)
+                self.change_font_size(1)
+                event.accept()
+                return
+            elif event.key() == Qt.Key_Minus:
+                # Decrease font size (Ctrl-)
+                self.change_font_size(-1)
+                event.accept()
+                return
+
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse movement for variable tooltips with delay."""
