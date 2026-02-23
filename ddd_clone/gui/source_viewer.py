@@ -158,9 +158,9 @@ class SourceViewer(QTextEdit):
             lexer = get_lexer_by_name(language)
 
             # Create HTML formatter with transparent background
-            # Use 'tango' style for better contrast on light green background
+            # Use 'pastie' style for good contrast on light backgrounds
             formatter = HtmlFormatter(
-                style='tango',
+                style='pastie',
                 noclasses=True,
                 nobackground=True
             )
