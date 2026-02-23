@@ -7,8 +7,18 @@ import threading
 import queue
 import re
 import time
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
 from PyQt5.QtCore import QObject, pyqtSignal
+
+from .exceptions import (
+    GDBError,
+    GDBConnectionError,
+    GDBCommandError,
+    GDBParseError,
+    MemoryAccessError,
+    GDBTimeoutError,
+    GDBProcessError,
+)
 
 
 class GDBController(QObject):
@@ -70,10 +80,12 @@ class GDBController(QObject):
             return True
 
         except Exception as e:
+            # Wrap in GDBConnectionError for more specific error handling
+            gdb_error = GDBConnectionError(f"Failed to start GDB: {e}")
             self.output_received.emit(f"Failed to start GDB: {e}")
             return False
 
-    def _read_output(self):
+    def _read_output(self) -> None:
         """Read output from GDB process in a separate thread."""
         while self.gdb_process and self.gdb_process.poll() is None:
             try:
@@ -81,11 +93,11 @@ class GDBController(QObject):
                 if line:
                     self.output_queue.put(line)
                     self._process_output(line)
-            except Exception as e:
+            except (OSError, UnicodeDecodeError) as e:
                 self.output_received.emit(f"Error reading GDB output: {e}")
                 break
 
-    def _parse_mi_output(self, output: str):
+    def _parse_mi_output(self, output: str) -> Optional[Tuple[Union[int, str], Optional[str], Optional[str]]]:
         """
         Parse GDB/MI output line.
         Returns (token, result_type, content) or None if not a tokenized response.
@@ -116,7 +128,7 @@ class GDBController(QObject):
 
         return None
 
-    def _process_output(self, output: str):
+    def _process_output(self, output: str) -> None:
         """Process GDB output and update state accordingly."""
         # Emit raw output
         self.output_received.emit(output)
@@ -154,7 +166,7 @@ class GDBController(QObject):
                 self.current_state['state'] = 'running'
                 self.state_changed.emit(self.current_state.copy())
 
-    def _handle_stopped_state(self, output: str):
+    def _handle_stopped_state(self, output: str) -> None:
         """Handle stopped state and extract location information."""
         import re
         # Check if this is actually an exit message
@@ -202,7 +214,7 @@ class GDBController(QObject):
             self.gdb_process.stdin.write(command + '\n')
             self.gdb_process.stdin.flush()
             return True
-        except Exception as e:
+        except (OSError, BrokenPipeError) as e:
             self.output_received.emit(f"Failed to send command: {e}")
             return False
 
@@ -265,6 +277,106 @@ class GDBController(QObject):
         """
         return self.send_command(f"-break-delete {breakpoint_id}")
 
+    def set_watchpoint(self, expression: str, watch_type: str = "write") -> bool:
+        """
+        Set a watchpoint on an expression.
+
+        Args:
+            expression: Expression to watch (variable name, address, etc.)
+            watch_type: Type of watchpoint - "write" (default), "read", "access"
+
+        Returns:
+            bool: True if watchpoint was set successfully
+        """
+        # GDB/MI command: -break-watch [ -a | -r | -w ] expression
+        type_flag = {
+            "write": "-w",
+            "read": "-r",
+            "access": "-a"
+        }.get(watch_type, "-w")
+
+        cmd = f"-break-watch {type_flag} {expression}"
+        return self.send_command(cmd)
+
+    def get_registers(self) -> List[Dict[str, str]]:
+        """
+        Get list of register names.
+
+        Returns:
+            List of dictionaries with register information
+        """
+        if not self.gdb_process or self.gdb_process.poll() is not None:
+            return []
+
+        try:
+            response = self.send_mi_command_sync("-data-list-register-names")
+            if not response:
+                return []
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return []
+        except GDBError:
+            return []
+
+        # Parse register names from response
+        # Format: ^done,register-names=["eax","ebx",...]
+        import re
+        match = re.search(r'register-names=\[([^\]]*)\]', content)
+        if not match:
+            return []
+
+        names_str = match.group(1)
+        # Parse quoted strings
+        register_names = re.findall(r'"([^"]*)"', names_str)
+        registers = []
+        for i, name in enumerate(register_names):
+            registers.append({"number": str(i), "name": name})
+        return registers
+
+    def get_register_values(self, format: str = "x") -> List[Dict[str, str]]:
+        """
+        Get current register values.
+
+        Args:
+            format: Output format - "x" (hex), "d" (decimal), "o" (octal), "t" (binary)
+
+        Returns:
+            List of dictionaries with register number, name, and value
+        """
+        if not self.gdb_process or self.gdb_process.poll() is not None:
+            return []
+
+        try:
+            response = self.send_mi_command_sync(f"-data-list-register-values {format}")
+            if not response:
+                return []
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return []
+        except GDBError:
+            return []
+
+        # Parse register values from response
+        # Format: ^done,register-values=[{number="0",value="0x0"},...]
+        import re
+        match = re.search(r'register-values=\[([^\]]*)\]', content)
+        if not match:
+            return []
+
+        values_str = match.group(1)
+        # Parse each {number="...",value="..."} entry
+        entries = re.findall(r'\{([^}]*)\}', values_str)
+        registers = []
+        for entry in entries:
+            # Parse key-value pairs
+            reg_dict = {}
+            pattern = r'(\w+)="([^"]*)"'
+            for key, value in re.findall(pattern, entry):
+                reg_dict[key] = value
+            if reg_dict:
+                registers.append(reg_dict)
+        return registers
+
     def get_variables(self) -> List[Dict[str, Any]]:
         """
         Get current variable values.
@@ -275,12 +387,12 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return []
 
-        response = self.send_mi_command_sync("-stack-list-variables --simple-values")
-        if not response:
-            return []
-
-        result_type, content = response
-        if result_type != '^' or not content.startswith('done'):
+        try:
+            response = self.send_mi_command_sync("-stack-list-variables --simple-values")
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return []
+        except GDBError:
             return []
 
         # Parse variables from MI response
@@ -332,12 +444,12 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return []
 
-        response = self.send_mi_command_sync("-stack-list-frames")
-        if not response:
-            return []
-
-        result_type, content = response
-        if result_type != '^' or not content.startswith('done'):
+        try:
+            response = self.send_mi_command_sync("-stack-list-frames")
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return []
+        except GDBError:
             return []
 
         # Parse stack frames from MI response
@@ -380,12 +492,12 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return None
 
-        response = self.send_mi_command_sync(f"-data-evaluate-expression {expression}")
-        if not response:
-            return None
-
-        result_type, content = response
-        if result_type != '^' or not content.startswith('done'):
+        try:
+            response = self.send_mi_command_sync(f"-data-evaluate-expression {expression}")
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return None
+        except GDBError:
             return None
 
         # Parse value from response: ^done,value="..."
@@ -410,12 +522,12 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return None
 
-        response = self.send_mi_command_sync(f"-data-read-memory 0x{address:x} x 1 {size}")
-        if not response:
-            return None
-
-        result_type, content = response
-        if result_type != '^' or not content.startswith('done'):
+        try:
+            response = self.send_mi_command_sync(f"-data-read-memory 0x{address:x} x 1 {size}")
+            result_type, content = response
+            if result_type != '^' or not content.startswith('done'):
+                return None
+        except GDBError:
             return None
 
         # Parse memory data from response
@@ -434,18 +546,21 @@ class GDBController(QObject):
                 try:
                     bytes_list.append(int(hex_val, 16))
                 except ValueError:
+                    # Invalid hex value, skip this byte
                     continue
 
         return bytes(bytes_list)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Shutdown GDB process."""
         if self.gdb_process:
             try:
                 self.send_command("-gdb-exit")
                 self.gdb_process.terminate()
                 self.gdb_process.wait(timeout=5)
-            except:
+            except Exception as e:
+                # Log the error but still attempt to kill the process
+                self.output_received.emit(f"Error during shutdown: {e}")
                 self.gdb_process.kill()
             finally:
                 self.gdb_process = None
@@ -473,7 +588,7 @@ class GDBController(QObject):
             content: The response content
         """
         if not self.gdb_process or self.gdb_process.poll() is not None:
-            return None
+            raise GDBConnectionError("GDB process not running")
 
         token = self._get_next_token()
         token_str = str(token)
@@ -487,7 +602,7 @@ class GDBController(QObject):
             # Send command with token
             full_command = f"{token_str}{command}"
             if not self.send_command(full_command):
-                return None
+                raise GDBCommandError(f"Failed to send command: {command}")
 
             # Wait for response
             start_time = time.time()
@@ -500,7 +615,7 @@ class GDBController(QObject):
                     continue
 
             # Timeout
-            return None
+            raise GDBTimeoutError(f"Command timed out after {timeout} seconds: {command}")
         finally:
             # Clean up response queue
             with self.response_lock:

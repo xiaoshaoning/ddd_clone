@@ -7,7 +7,6 @@ setup(
     author="DDD Clone Team",
     packages=find_packages(),
     install_requires=[
-        "numpy>=1.21.0",
         "PyQt5>=5.15.0",
         "pexpect>=4.8.0",
     ],

@@ -2,9 +2,11 @@
 Memory viewer for displaying and analyzing memory contents.
 """
 
-from typing import List, Optional, Tuple
-import numpy as np
+from typing import List, Optional, Tuple, Dict, Any
+import math
+from collections import Counter
 from PyQt5.QtCore import QObject, pyqtSignal
+from ..gdb.exceptions import GDBError, MemoryAccessError
 
 
 class MemoryRegion:
@@ -86,7 +88,7 @@ class MemoryViewer(QObject):
             self.memory_updated.emit(region)
             return region
 
-        except Exception as e:
+        except (GDBError, MemoryAccessError, OSError) as e:
             self.memory_error.emit(f"Failed to read memory: {e}")
             return None
 
@@ -120,7 +122,7 @@ class MemoryViewer(QObject):
 
             return False
 
-        except Exception as e:
+        except (GDBError, MemoryAccessError, OSError) as e:
             self.memory_error.emit(f"Failed to write memory: {e}")
             return False
 
@@ -267,53 +269,62 @@ class MemoryViewer(QObject):
         if not region:
             return {}
 
-        data = np.frombuffer(region.data, dtype=np.uint8)
+        data = region.data  # bytes object
 
         analysis = {
             'size': len(data),
-            'zero_bytes': np.sum(data == 0),
-            'non_zero_bytes': np.sum(data != 0),
-            'average_value': float(np.mean(data)),
+            'zero_bytes': sum(1 for b in data if b == 0),
+            'non_zero_bytes': sum(1 for b in data if b != 0),
+            'average_value': sum(data) / len(data) if data else 0.0,
             'entropy': self._calculate_entropy(data),
             'common_values': self._find_common_values(data),
         }
 
         return analysis
 
-    def _calculate_entropy(self, data: np.ndarray) -> float:
+    def _calculate_entropy(self, data: bytes) -> float:
         """
         Calculate entropy of data.
 
         Args:
-            data: Numpy array of bytes
+            data: Bytes object
 
         Returns:
             Entropy value
         """
-        value_counts = np.bincount(data, minlength=256)
-        probabilities = value_counts / len(data)
-        probabilities = probabilities[probabilities > 0]  # Remove zero probabilities
-        entropy = -np.sum(probabilities * np.log2(probabilities))
+        if not data:
+            return 0.0
+
+        # Count frequency of each byte value (0-255)
+        value_counts = [0] * 256
+        for b in data:
+            value_counts[b] += 1
+
+        entropy = 0.0
+        total = len(data)
+        for count in value_counts:
+            if count > 0:
+                probability = count / total
+                entropy -= probability * math.log2(probability)
+
         return entropy
 
-    def _find_common_values(self, data: np.ndarray, top_n: int = 10) -> List[Tuple[int, int]]:
+    def _find_common_values(self, data: bytes, top_n: int = 10) -> List[Tuple[int, int]]:
         """
         Find most common byte values.
 
         Args:
-            data: Numpy array of bytes
+            data: Bytes object
             top_n: Number of top values to return
 
         Returns:
             List of tuples (value, count)
         """
-        value_counts = np.bincount(data, minlength=256)
-        # Get indices of top values
-        top_indices = np.argsort(value_counts)[-top_n:][::-1]
+        if not data:
+            return []
 
-        common_values = []
-        for idx in top_indices:
-            if value_counts[idx] > 0:
-                common_values.append((idx, value_counts[idx]))
-
-        return common_values
+        # Use Counter to count byte frequencies
+        counter = Counter(data)
+        # Get most common values
+        common = counter.most_common(top_n)
+        return common

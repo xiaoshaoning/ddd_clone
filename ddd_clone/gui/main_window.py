@@ -3,6 +3,7 @@ Main application window for DDD Clone.
 """
 
 import os
+from typing import Any
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
@@ -38,7 +39,7 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.connect_signals()
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
         """Set up the main user interface."""
         self.setWindowTitle("DDD Clone - Graphical Debugger")
         # Position window above command window with larger size
@@ -75,7 +76,7 @@ class MainWindow(QMainWindow):
         # Create status bar
         self.create_status_bar()
 
-    def create_left_panel(self):
+    def create_left_panel(self) -> None:
         """Create the left panel with source code and execution controls."""
         left_widget = QWidget()
         layout = QVBoxLayout(left_widget)
@@ -86,7 +87,7 @@ class MainWindow(QMainWindow):
 
         return left_widget
 
-    def create_right_panel(self):
+    def create_right_panel(self) -> None:
         """Create the right panel with debug information."""
         right_widget = QWidget()
         layout = QVBoxLayout(right_widget)
@@ -164,7 +165,7 @@ class MainWindow(QMainWindow):
 
         return right_widget
 
-    def create_toolbar(self):
+    def create_toolbar(self) -> None:
         """Create the main toolbar with debug controls."""
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(toolbar)
@@ -204,7 +205,7 @@ class MainWindow(QMainWindow):
         step_out_action.triggered.connect(self.step_out)
         toolbar.addAction(step_out_action)
 
-    def create_menu_bar(self):
+    def create_menu_bar(self) -> None:
         """Create the menu bar."""
         menu_bar = QMenuBar(self)
         self.setMenuBar(menu_bar)
@@ -223,7 +224,7 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
-    def create_status_bar(self):
+    def create_status_bar(self) -> None:
         """Create the status bar."""
         status_bar = QStatusBar()
         self.setStatusBar(status_bar)
@@ -235,7 +236,7 @@ class MainWindow(QMainWindow):
         self.current_file_label = QLabel("No file loaded")
         status_bar.addPermanentWidget(self.current_file_label)
 
-    def connect_signals(self):
+    def connect_signals(self) -> None:
         """Connect signals from GDB controller to UI updates."""
         self.gdb_controller.state_changed.connect(self.update_ui_state)
         self.gdb_controller.output_received.connect(self.handle_gdb_output)
@@ -244,7 +245,7 @@ class MainWindow(QMainWindow):
         self.source_viewer.breakpoint_toggled.connect(self.handle_breakpoint_toggle)
         self.source_viewer.variable_hovered.connect(self.handle_variable_hover)
 
-    def run_or_continue(self):
+    def run_or_continue(self) -> None:
         """Run program (if not started) or continue execution (if paused)."""
         try:
             # Check if GDB is running
@@ -277,7 +278,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to run/continue program: {e}")
 
-    def run_program(self):
+    def run_program(self) -> None:
         """Start program execution."""
         try:
             # Check if GDB is running
@@ -292,42 +293,42 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to run program: {e}")
 
-    def pause_program(self):
+    def pause_program(self) -> None:
         """Pause program execution."""
         try:
             self.gdb_controller.pause()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to pause program: {e}")
 
-    def step_over(self):
+    def step_over(self) -> None:
         """Step over current line."""
         try:
             self.gdb_controller.step_over()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to step over: {e}")
 
-    def step_into(self):
+    def step_into(self) -> None:
         """Step into function call."""
         try:
             self.gdb_controller.step_into()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to step into: {e}")
 
-    def step_out(self):
+    def step_out(self) -> None:
         """Step out of current function."""
         try:
             self.gdb_controller.step_out()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to step out: {e}")
 
-    def continue_execution(self):
+    def continue_execution(self) -> None:
         """Continue program execution."""
         try:
             self.gdb_controller.continue_execution()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to continue: {e}")
 
-    def update_ui_state(self, state_info):
+    def update_ui_state(self, state_info: dict) -> None:
         """Update UI based on current debugger state."""
         # Update status label
         state = state_info.get('state', 'unknown')
@@ -350,7 +351,7 @@ class MainWindow(QMainWindow):
             else:
                 self.current_file_label.setText("No file loaded")
 
-    def handle_gdb_output(self, output):
+    def handle_gdb_output(self, output: str) -> None:
         """Handle output received from GDB."""
         # Process GDB output and update relevant UI components
 
@@ -530,7 +531,7 @@ class MainWindow(QMainWindow):
         ''', re.VERBOSE)
         return ansi_escape.sub('', text)
 
-    def _handle_breakpoint_output(self, output: str):
+    def _handle_breakpoint_output(self, output: str) -> None:
         """Handle GDB output related to breakpoint creation."""
         import re
 
@@ -556,7 +557,7 @@ class MainWindow(QMainWindow):
             line_number = int(match2.group(3))
             self._add_breakpoint_visual_marker(file_path, line_number)
 
-    def _add_breakpoint_visual_marker(self, file_path: str, line_number: int):
+    def _add_breakpoint_visual_marker(self, file_path: str, line_number: int) -> None:
         """Add visual breakpoint marker if the file matches current source."""
         if (hasattr(self.source_viewer, 'current_file') and
             self.source_viewer.current_file and
@@ -565,7 +566,7 @@ class MainWindow(QMainWindow):
             # Add visual marker
             self.source_viewer.add_breakpoint_marker(line_number)
 
-    def _handle_variable_output(self, output: str):
+    def _handle_variable_output(self, output: str) -> None:
         """Extract variable values from GDB output for tooltips."""
         import re
 
@@ -626,12 +627,12 @@ class MainWindow(QMainWindow):
                 del self.pending_variable_queries[self.current_hover_variable]
                 print(f"{variable_value}")
 
-    def _update_variable_tooltip(self, variable_name: str, value: str):
+    def _update_variable_tooltip(self, variable_name: str, value: str) -> None:
         """Update the tooltip with the actual variable value."""
         # Update the source viewer with the variable value and update tooltip
         self.source_viewer.update_variable_tooltip(variable_name, value)
 
-    def load_initial_source(self, program_path):
+    def load_initial_source(self, program_path: str) -> None:
         # For now, try to load the corresponding C file
         # In a real implementation, we would query GDB for the main file
         c_file = program_path.replace('.exe', '.c')
@@ -648,7 +649,7 @@ class MainWindow(QMainWindow):
                     self.current_file_label.setText(f"Loaded: {c_file}")
                     break
 
-    def open_program(self):
+    def open_program(self) -> None:
         """Open a program for debugging."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open Program", "", "Executable Files (*.exe);;All Files (*)"
@@ -660,14 +661,14 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", "Failed to start GDB with selected program")
 
-    def set_breakpoint_at_line(self, line_number):
+    def set_breakpoint_at_line(self, line_number: int) -> None:
         """Set breakpoint at specific line in current file."""
         if hasattr(self.source_viewer, 'current_file'):
             current_file = self.source_viewer.current_file
             if current_file:
                 self.breakpoint_manager.add_breakpoint(current_file, line_number)
 
-    def remove_breakpoint_at_line(self, line_number):
+    def remove_breakpoint_at_line(self, line_number: int) -> None:
         """Remove breakpoint at specific line in current file."""
         if hasattr(self.source_viewer, 'current_file'):
             current_file = self.source_viewer.current_file
@@ -679,7 +680,7 @@ class MainWindow(QMainWindow):
                         self.breakpoint_manager.remove_breakpoint(bp.breakpoint_id)
                         break
 
-    def execute_gdb_command(self):
+    def execute_gdb_command(self) -> None:
         """Execute a GDB command from the input field."""
         command = self.gdb_command_input.text().strip()
         if not command:
@@ -694,7 +695,7 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "Failed to execute GDB command")
 
-    def handle_breakpoint_toggle(self, line_number: int):
+    def handle_breakpoint_toggle(self, line_number: int) -> None:
         """Handle breakpoint toggle from source viewer."""
 
         if hasattr(self.source_viewer, 'current_file') and self.source_viewer.current_file:
@@ -726,7 +727,7 @@ class MainWindow(QMainWindow):
         else:
             pass  # Cannot set breakpoint: no source file loaded
 
-    def handle_variable_hover(self, variable_name: str):
+    def handle_variable_hover(self, variable_name: str) -> None:
         """Handle variable hover and query GDB for variable value."""
         # Only query variable values when program is stopped
         if self.gdb_controller.current_state['state'] != 'stopped':
@@ -745,7 +746,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             pass  # Silent error handling
 
-    def _show_gdb_output_context_menu(self, position):
+    def _show_gdb_output_context_menu(self, position: Any) -> None:
         """Show context menu for GDB output text area."""
         menu = QMenu(self.gdb_output_text)
 
@@ -757,6 +758,6 @@ class MainWindow(QMainWindow):
         # Show the menu at the cursor position
         menu.exec_(self.gdb_output_text.viewport().mapToGlobal(position))
 
-    def _clear_gdb_output(self):
+    def _clear_gdb_output(self) -> None:
         """Clear the GDB output text area."""
         self.gdb_output_text.clear()

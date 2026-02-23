@@ -1,7 +1,6 @@
 # DDD Clone - Graphical Debugger Frontend for GDB
 
 # Core dependencies
-numpy>=1.21.0
 
 # GUI framework
 PyQt5>=5.15.0
