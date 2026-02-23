@@ -3,7 +3,7 @@ Source code viewer with syntax highlighting.
 """
 
 from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QPoint, QRectF
 from PyQt5.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QMouseEvent
 
 from .line_number_area import LineNumberArea
@@ -496,6 +496,31 @@ class SourceViewer(QTextEdit):
     def blockCount(self):
         """Return the number of blocks (lines) in the document."""
         return self.document().blockCount()
+
+    def firstVisibleBlock(self):
+        """Return the first visible block in the viewport."""
+        cursor = self.cursorForPosition(QPoint(0, 0))
+        return cursor.block()
+
+    def blockBoundingGeometry(self, block):
+        """Return the bounding geometry of a block in document coordinates."""
+        if not block.isValid():
+            return QRectF()
+        layout = self.document().documentLayout()
+        return layout.blockBoundingRect(block)
+
+    def blockBoundingRect(self, block):
+        """Return the bounding rectangle of a block in viewport coordinates."""
+        geometry = self.blockBoundingGeometry(block)
+        if geometry.isNull():
+            return QRectF()
+        # Only need height for line number area calculations
+        return QRectF(0, 0, 0, geometry.height())
+
+    def contentOffset(self):
+        """Return the content offset (scroll position)."""
+        # For QTextEdit, content offset is the scroll position
+        return QPoint(self.horizontalScrollBar().value(), self.verticalScrollBar().value())
 
     def line_number_area_width(self):
         """Calculate the width needed for the line number area."""
