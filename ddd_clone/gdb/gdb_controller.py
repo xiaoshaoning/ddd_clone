@@ -87,34 +87,53 @@ class GDBController(QObject):
         self.output_received.emit(output)
 
         # Parse GDB/MI output for state changes
-        if 'stopped' in output:
-            self._handle_stopped_state(output)
-        elif 'running' in output:
-            self.current_state['state'] = 'running'
-            self.state_changed.emit(self.current_state.copy())
-        elif 'exited' in output or 'exit-normal' in output:
+        # Check for exited first, as exited messages may also contain 'stopped'
+        import re
+        # Check for various forms of exit messages
+        exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
+        exit_match = re.search(exit_pattern, output)
+
+        if exit_match:
             # Program has exited, clear line and file info
             self.current_state['state'] = 'exited'
             self.current_state['line'] = None
             self.current_state['file'] = None
             self.current_state['function'] = None
             self.state_changed.emit(self.current_state.copy())
+        elif 'stopped' in output:
+            self._handle_stopped_state(output)
+        elif 'running' in output:
+            self.current_state['state'] = 'running'
+            self.state_changed.emit(self.current_state.copy())
 
     def _handle_stopped_state(self, output: str):
         """Handle stopped state and extract location information."""
-        self.current_state['state'] = 'stopped'
+        import re
+        # Check if this is actually an exit message
+        exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
+        exit_match = re.search(exit_pattern, output)
 
-        # Extract file and line information
-        file_match = re.search(r'file="([^"]+)"', output)
-        line_match = re.search(r'line="(\d+)"', output)
-        func_match = re.search(r'func="([^"]+)"', output)
+        if exit_match:
+            # Program has exited, not stopped
+            self.current_state['state'] = 'exited'
+            self.current_state['line'] = None
+            self.current_state['file'] = None
+            self.current_state['function'] = None
+        else:
+            # Normal stopped state (e.g., breakpoint hit)
+            self.current_state['state'] = 'stopped'
 
-        if file_match:
-            self.current_state['file'] = file_match.group(1)
-        if line_match:
-            self.current_state['line'] = int(line_match.group(1))
-        if func_match:
-            self.current_state['function'] = func_match.group(1)
+            # Extract file and line information
+            file_match = re.search(r'file="([^"]+)"', output)
+            line_match = re.search(r'line="(\d+)"', output)
+            func_match = re.search(r'func="([^"]+)"', output)
+
+            if file_match:
+                self.current_state['file'] = file_match.group(1)
+            if line_match:
+                self.current_state['line'] = int(line_match.group(1))
+            if func_match:
+                self.current_state['function'] = func_match.group(1)
 
         self.state_changed.emit(self.current_state.copy())
 
