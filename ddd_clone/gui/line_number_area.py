@@ -49,7 +49,6 @@ class LineNumberArea(QWidget):
                 block_number += 1
 
             if line_number > 0:
-                print(f"[LineNumberArea] Click detected at line {line_number}")
                 self.line_number_clicked.emit(line_number)
                 return  # Event handled
 

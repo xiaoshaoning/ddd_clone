@@ -276,30 +276,22 @@ class SourceViewer(QPlainTextEdit):
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse clicks for breakpoint setting."""
-        # Debug print
-        print(f"Mouse press at: {event.pos().x()}, {event.pos().y()}, button: {event.button()}")
-        print(f"Viewport margins: {self.viewportMargins()}")
-        print(f"Contents rect: {self.contentsRect()}")
-
         # Calculate line number area width
         line_number_width = self.line_number_area_width()
-        print(f"Line number area width: {line_number_width}")
 
         # Check if click is in the line number area (including breakpoint marker area)
         if (event.button() == Qt.LeftButton and
             event.pos().x() <= line_number_width):  # Click within line number area
-            print(f"Line number area clicked (x={event.pos().x()} <= {line_number_width})")
 
             # Get the line number that was clicked
             cursor = self.cursorForPosition(event.pos())
             line_number = cursor.blockNumber() + 1  # Convert to 1-based line numbers
-            print(f"Line number clicked: {line_number}")
 
             # Toggle breakpoint
             self.toggle_breakpoint(line_number)
             return  # Don't propagate the event
         else:
-            print(f"Click outside line number area (x={event.pos().x()} > {line_number_width})")
+            pass  # Click outside line number area
 
         super().mousePressEvent(event)
 

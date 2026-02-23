@@ -80,7 +80,6 @@ class BreakpointManager(QObject):
             return breakpoint
         else:
             # GDB failed to set the breakpoint - don't add it to our internal state
-            print(f"[WARNING] Failed to set breakpoint at {file}:{line} - no executable code at this location")
             return None
 
     def remove_breakpoint(self, breakpoint_id: int) -> bool:
