@@ -324,7 +324,6 @@ class SourceViewer(QPlainTextEdit):
             # Start 2-second delay timer
             self.hover_timer.start(2000)  # 2000 milliseconds = 2 seconds
             self.hover_timer_active = True
-            print(f"Hover timer started for variable: {variable_name}")
         else:
             # Hide tooltip if not over a valid variable
             QToolTip.hideText()
@@ -335,14 +334,13 @@ class SourceViewer(QPlainTextEdit):
     def _handle_hover_timeout(self):
         """Handle hover timer timeout - query variable value after delay."""
         if self.current_hover_variable and self.last_hover_pos:
-            print(f"Hover timeout for variable: {self.current_hover_variable}")
             # Emit signal for variable hover (this triggers GDB query)
             self.variable_hovered.emit(self.current_hover_variable)
 
             # Show tooltip with "Loading..." message
-            QToolTip.showText(self.last_hover_pos, f"{self.current_hover_variable}: Loading...", self)
+            QToolTip.showText(self.last_hover_pos, "Loading...", self)
         else:
-            print(f"Hover timeout but no valid variable")
+            pass  # No valid variable for hover
 
     def _is_valid_variable_name(self, text: str) -> bool:
         """
@@ -390,7 +388,6 @@ class SourceViewer(QPlainTextEdit):
 
     def toggle_breakpoint(self, line_number: int):
         """Toggle breakpoint at specified line."""
-        print(f"toggle_breakpoint called for line {line_number}")
         # Emit signal first - the main window will handle actual breakpoint setting
         # The visual marker will be updated based on whether GDB successfully sets the breakpoint
         self.breakpoint_toggled.emit(line_number)
@@ -400,7 +397,6 @@ class SourceViewer(QPlainTextEdit):
         self.breakpoint_lines.add(line_number)
         # Trigger repaint of line number area
         self.line_number_area.update()
-        print(f"Breakpoint visual marker added at line {line_number}")
 
     def remove_breakpoint_marker(self, line_number: int):
         """Remove visual breakpoint marker."""
@@ -408,7 +404,6 @@ class SourceViewer(QPlainTextEdit):
             self.breakpoint_lines.remove(line_number)
         # Trigger repaint of line number area
         self.line_number_area.update()
-        print(f"Breakpoint visual marker removed at line {line_number}")
 
     def get_breakpoint_lines(self) -> set:
         """Get all breakpoint line numbers."""
@@ -423,7 +418,16 @@ class SourceViewer(QPlainTextEdit):
     def update_variable_value(self, variable_name: str, value: str):
         """Update the stored value for a variable."""
         self.variable_values[variable_name] = value
-        print(f"Updated variable value: {variable_name} = {value}")
+
+    def update_variable_tooltip(self, variable_name: str, value: str):
+        """Update the tooltip with the actual variable value."""
+        # Update stored value
+        self.update_variable_value(variable_name, value)
+
+        # If this is the current hover variable, update the tooltip immediately
+        if (variable_name == self.current_hover_variable and
+            self.last_hover_pos is not None):
+            QToolTip.showText(self.last_hover_pos, f"{value}", self)
 
     def get_variable_value(self, variable_name: str) -> str:
         """Get the stored value for a variable."""

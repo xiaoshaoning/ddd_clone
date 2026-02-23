@@ -329,7 +329,6 @@ class MainWindow(QMainWindow):
     def handle_gdb_output(self, output):
         """Handle output received from GDB."""
         # Process GDB output and update relevant UI components
-        print(f"GDB Output: {output}")
 
         # Handle breakpoint creation from GDB commands
         self._handle_breakpoint_output(output)
@@ -423,7 +422,6 @@ class MainWindow(QMainWindow):
 
             # Add visual marker
             self.source_viewer.add_breakpoint_marker(line_number)
-            print(f"Visual breakpoint marker added at {file_path}:{line_number}")
 
     def _handle_variable_output(self, output: str):
         """Extract variable values from GDB output for tooltips."""
@@ -435,7 +433,6 @@ class MainWindow(QMainWindow):
 
         # Skip error messages
         if output.startswith('^error'):
-            print(f"GDB error for variable {self.current_hover_variable}: {output}")
             # Remove from pending queries without updating tooltip
             if self.current_hover_variable in self.pending_variable_queries:
                 del self.pending_variable_queries[self.current_hover_variable]
@@ -450,11 +447,19 @@ class MainWindow(QMainWindow):
         match = re.search(value_pattern, output)
         if match:
             variable_value = match.group(1).strip()
+            # Clean up the value: remove newlines and extra whitespace
+            variable_value = variable_value.replace('\n', ' ').replace('\r', '')
+            # Remove any remaining "= " prefix just in case
+            if variable_value.startswith('= '):
+                variable_value = variable_value[2:]
+            elif variable_value.startswith('='):
+                variable_value = variable_value[1:]
+            # Collapse multiple spaces
+            variable_value = ' '.join(variable_value.split())
 
             # Skip function addresses (e.g., "{int (void)} 0x7ff7625314fd <main>")
             # This pattern matches function type signatures
             if re.match(r'^\{.*\}.*<.*>$', variable_value):
-                print(f"Skipping function address for {self.current_hover_variable}: {variable_value}")
                 # Remove from pending queries without updating tooltip
                 if self.current_hover_variable in self.pending_variable_queries:
                     del self.pending_variable_queries[self.current_hover_variable]
@@ -469,15 +474,12 @@ class MainWindow(QMainWindow):
 
                 # Remove from pending queries
                 del self.pending_variable_queries[self.current_hover_variable]
-                print(f"Variable value extracted: {self.current_hover_variable} = {variable_value}")
+                print(f"{variable_value}")
 
     def _update_variable_tooltip(self, variable_name: str, value: str):
         """Update the tooltip with the actual variable value."""
-        # Update the source viewer with the variable value
-        self.source_viewer.update_variable_value(variable_name, value)
-        print(f"Tooltip updated: {variable_name} = {value}")
-
-        # Note: The tooltip will show the actual value on the next hover
+        # Update the source viewer with the variable value and update tooltip
+        self.source_viewer.update_variable_tooltip(variable_name, value)
 
     def load_initial_source(self, program_path):
         # For now, try to load the corresponding C file
@@ -602,10 +604,7 @@ class MainWindow(QMainWindow):
             # Send command to get variable value
             command = f"print {variable_name}"
             if self.gdb_controller.send_command(command):
-                print(f"Querying variable: {variable_name}")
                 # Track this query so we can extract the value from the output
                 self.pending_variable_queries[variable_name] = True
-            else:
-                print(f"Failed to query variable: {variable_name}")
         except Exception as e:
-            print(f"Error querying variable {variable_name}: {e}")
+            pass  # Silent error handling
