@@ -18,7 +18,7 @@ except ImportError:
     PYGMENTS_AVAILABLE = False
 
 
-class SourceViewer(QPlainTextEdit):
+class SourceViewer(QTextEdit):
     """
     Source code viewer with basic syntax highlighting.
     """
@@ -56,7 +56,7 @@ class SourceViewer(QPlainTextEdit):
     def setup_ui(self):
         """Set up the source viewer UI."""
         # Set line wrap mode
-        self.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.setLineWrapMode(QTextEdit.NoWrap)
 
         # Set tab width
         self.setTabStopDistance(40)
@@ -65,8 +65,15 @@ class SourceViewer(QPlainTextEdit):
         self.setMouseTracking(True)
 
         # Connect signals for line number area
-        self.blockCountChanged.connect(self.update_line_number_area_width)
-        self.updateRequest.connect(self.update_line_number_area)
+        # Use document's blockCountChanged signal if available
+        if hasattr(self.document(), 'blockCountChanged'):
+            self.document().blockCountChanged.connect(self.update_line_number_area_width)
+        else:
+            # Fallback to textChanged signal
+            self.textChanged.connect(self.update_line_number_area_width)
+
+        # Connect scroll bar value change to update line number area
+        self.verticalScrollBar().valueChanged.connect(self._handle_scroll_for_line_numbers)
 
         # Connect line number area click signal
         self.line_number_area.line_number_clicked.connect(self.toggle_breakpoint)
@@ -151,8 +158,9 @@ class SourceViewer(QPlainTextEdit):
             lexer = get_lexer_by_name(language)
 
             # Create HTML formatter with transparent background
+            # Use a style that works well with light backgrounds
             formatter = HtmlFormatter(
-                style='default',
+                style='friendly',
                 noclasses=True,
                 nobackground=True
             )
@@ -160,11 +168,15 @@ class SourceViewer(QPlainTextEdit):
             # Highlight code
             highlighted_code = highlight(source_code, lexer, formatter)
 
+            # Debug: print first 500 chars of HTML to verify highlighting
+            # print(f"Generated HTML (first 500 chars): {highlighted_code[:500]}")
+
             # Set HTML content
             self.setHtml(highlighted_code)
 
         except Exception as e:
             # Fallback to plain text if highlighting fails
+            # print(f"Syntax highlighting failed: {e}")
             self.setPlainText(source_code)
 
     def _get_language_from_file(self, file_path: str) -> str:
@@ -481,10 +493,15 @@ class SourceViewer(QPlainTextEdit):
         return self.variable_values.get(variable_name, "Loading...")
 
     # Line number area methods
+    def blockCount(self):
+        """Return the number of blocks (lines) in the document."""
+        return self.document().blockCount()
+
     def line_number_area_width(self):
         """Calculate the width needed for the line number area."""
         digits = 1
-        max_num = max(1, self.blockCount())
+        # Use document's blockCount method
+        max_num = max(1, self.document().blockCount())
         while max_num >= 10:
             max_num /= 10
             digits += 1
@@ -504,6 +521,10 @@ class SourceViewer(QPlainTextEdit):
 
         if rect.contains(self.viewport().rect()):
             self.update_line_number_area_width(0)
+
+    def _handle_scroll_for_line_numbers(self):
+        """Handle scroll bar value change to update line number area."""
+        self.line_number_area.update()
 
     def resizeEvent(self, event):
         """Handle resize events."""

@@ -33,26 +33,11 @@ class LineNumberArea(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse clicks in the line number area."""
         if event.button() == Qt.LeftButton:
-            # Calculate which line was clicked based on y coordinate
-            y_pos = event.pos().y()
-
-            # Find the line number at this y position
-            block = self.source_viewer.firstVisibleBlock()
-            block_number = block.blockNumber()
-            top = self.source_viewer.blockBoundingGeometry(block).translated(
-                self.source_viewer.contentOffset()).top()
-            bottom = top + self.source_viewer.blockBoundingRect(block).height()
-
-            line_number = -1
-            while block.isValid() and top <= y_pos:
-                if bottom >= y_pos:
-                    line_number = block_number + 1  # Convert to 1-based
-                    break
-
-                block = block.next()
-                top = bottom
-                bottom = top + self.source_viewer.blockBoundingRect(block).height()
-                block_number += 1
+            # Convert click position to source viewer coordinates
+            viewer_pos = self.source_viewer.mapFrom(self, event.pos())
+            # Get cursor at this position
+            cursor = self.source_viewer.cursorForPosition(viewer_pos)
+            line_number = cursor.blockNumber() + 1  # Convert to 1-based
 
             if line_number > 0:
                 self.line_number_clicked.emit(line_number)
@@ -67,12 +52,24 @@ class LineNumberArea(QWidget):
         painter.setFont(self.font())
         painter.fillRect(event.rect(), QColor(202, 234, 206))
 
-        block = self.source_viewer.firstVisibleBlock()
+        # Get first visible block using cursor at top-left of viewport
+        cursor = self.source_viewer.cursorForPosition(QPoint(0, 0))
+        block = cursor.block()
         block_number = block.blockNumber()
-        top = self.source_viewer.blockBoundingGeometry(block).translated(
-            self.source_viewer.contentOffset()).top()
-        bottom = top + self.source_viewer.blockBoundingRect(block).height()
 
+        # Get document layout
+        layout = self.source_viewer.document().documentLayout()
+
+        # Get viewport and scroll information
+        viewport = self.source_viewer.viewport()
+        scroll_y = self.source_viewer.verticalScrollBar().value()
+
+        # Get block bounding rect (relative to document)
+        block_rect = layout.blockBoundingRect(block)
+        top = block_rect.y() - scroll_y
+        bottom = top + block_rect.height()
+
+        # Paint visible blocks
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 line_number = block_number + 1
@@ -96,10 +93,15 @@ class LineNumberArea(QWidget):
                 rect = QRect(0, int(top), self.width() - 5, block_height)
                 painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
+            # Move to next block
             block = block.next()
-            top = bottom
-            bottom = top + self.source_viewer.blockBoundingRect(block).height()
             block_number += 1
+            if not block.isValid():
+                break
+
+            block_rect = layout.blockBoundingRect(block)
+            top = bottom
+            bottom = top + block_rect.height()
 
     def changeEvent(self, event):
         """Handle change events, including font changes."""
