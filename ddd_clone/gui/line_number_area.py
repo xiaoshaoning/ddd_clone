@@ -3,7 +3,7 @@ Line number area for source viewer.
 """
 
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt, QRect, pyqtSignal
+from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal
 from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent
 
 
