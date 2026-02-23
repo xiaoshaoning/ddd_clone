@@ -52,39 +52,50 @@ class LineNumberArea(QWidget):
         painter.setFont(self.font())
         painter.fillRect(event.rect(), QColor(202, 234, 206))
 
+        content_offset = self.source_viewer.contentOffset()
+
         block = self.source_viewer.firstVisibleBlock()
-        block_number = block.blockNumber()
-        top = self.source_viewer.blockBoundingGeometry(block).translated(
-            self.source_viewer.contentOffset()).top()
-        bottom = top + self.source_viewer.blockBoundingRect(block).height()
+        while block.isValid():
+            if not block.isVisible():
+                block = block.next()
+                continue
 
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                line_number = block_number + 1
+            # Calculate block position in line number area coordinates
+            block_geom = self.source_viewer.blockBoundingGeometry(block)
+            if block_geom.isNull():
+                break
 
-                # Calculate block height for vertical alignment
-                block_height = int(bottom - top)
+            # Convert document coordinates to viewport coordinates
+            top = block_geom.translated(content_offset).top()
+            block_height = block_geom.height()
+            bottom = top + block_height
 
-                # Draw breakpoint marker if this line has a breakpoint
-                if line_number in self.source_viewer.breakpoint_lines:
-                    # Draw red circle for breakpoint (left of line numbers)
-                    painter.setBrush(QBrush(QColor(255, 0, 0)))  # Red
-                    painter.setPen(Qt.NoPen)
-                    marker_size = 8
-                    marker_x = 6  # Position to the left of line numbers
-                    marker_y = int(top) + (block_height - marker_size) // 2
-                    painter.drawEllipse(marker_x, marker_y, marker_size, marker_size)
+            # Check if block is visible in line number area
+            if top > event.rect().bottom():
+                break  # Blocks are sorted, no more visible blocks
+            if bottom < event.rect().top():
+                block = block.next()
+                continue  # Block not visible yet
 
-                # Draw line number
-                number = str(line_number)
-                painter.setPen(Qt.black)
-                rect = QRect(0, int(top), self.width() - 5, block_height)
-                painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
+            line_number = block.blockNumber() + 1
+
+            # Draw breakpoint marker if this line has a breakpoint
+            if line_number in self.source_viewer.breakpoint_lines:
+                # Draw red circle for breakpoint (left of line numbers)
+                painter.setBrush(QBrush(QColor(255, 0, 0)))  # Red
+                painter.setPen(Qt.NoPen)
+                marker_size = 8
+                marker_x = 6  # Position to the left of line numbers
+                marker_y = int(top) + (block_height - marker_size) // 2
+                painter.drawEllipse(marker_x, marker_y, marker_size, marker_size)
+
+            # Draw line number
+            number = str(line_number)
+            painter.setPen(Qt.black)
+            rect = QRect(0, int(top), self.width() - 5, int(block_height))
+            painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
             block = block.next()
-            top = bottom
-            bottom = top + self.source_viewer.blockBoundingRect(block).height()
-            block_number += 1
 
     def changeEvent(self, event):
         """Handle change events, including font changes."""
