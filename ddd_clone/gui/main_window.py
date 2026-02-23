@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
     QAction, QStatusBar, QLabel, QMessageBox, QMenuBar, QMenu, QFileDialog,
-    QLineEdit, QPushButton, QHBoxLayout
+    QLineEdit, QPushButton, QHBoxLayout, QToolTip
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont
@@ -433,6 +433,16 @@ class MainWindow(QMainWindow):
         if not self.pending_variable_queries or not self.current_hover_variable:
             return
 
+        # Skip error messages
+        if output.startswith('^error'):
+            print(f"GDB error for variable {self.current_hover_variable}: {output}")
+            # Remove from pending queries without updating tooltip
+            if self.current_hover_variable in self.pending_variable_queries:
+                del self.pending_variable_queries[self.current_hover_variable]
+                # Hide tooltip for errors
+                QToolTip.hideText()
+            return
+
         # Pattern to match GDB print output like "$1 = 5" or "$272 = 5"
         # Also handles arrays and structures
         value_pattern = r'=\s*(.+)'
@@ -440,6 +450,17 @@ class MainWindow(QMainWindow):
         match = re.search(value_pattern, output)
         if match:
             variable_value = match.group(1).strip()
+
+            # Skip function addresses (e.g., "{int (void)} 0x7ff7625314fd <main>")
+            # This pattern matches function type signatures
+            if re.match(r'^\{.*\}.*<.*>$', variable_value):
+                print(f"Skipping function address for {self.current_hover_variable}: {variable_value}")
+                # Remove from pending queries without updating tooltip
+                if self.current_hover_variable in self.pending_variable_queries:
+                    del self.pending_variable_queries[self.current_hover_variable]
+                    # Hide tooltip for function addresses
+                    QToolTip.hideText()
+                return
 
             # Check if this is for our current hover variable
             if self.current_hover_variable in self.pending_variable_queries:

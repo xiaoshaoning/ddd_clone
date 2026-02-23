@@ -508,3 +508,117 @@ def test_breakpoint_mouse_click(qtbot):
 
     print(f"[OK] Breakpoint successfully set via mouse click at line 5")
     print(f"[OK] GDB set_breakpoint called with: {call_args}")
+
+
+def test_variable_name_validation(qtbot):
+    """Test variable name validation filters keywords and function names."""
+    from ddd_clone.gui.source_viewer import SourceViewer
+
+    # Create source viewer instance with qtbot to manage QApplication
+    viewer = SourceViewer()
+    qtbot.addWidget(viewer)
+
+    # Test valid variable names
+    valid_names = ['x', 'my_var', '_private', 'var123', 'myVar']
+    for name in valid_names:
+        assert viewer._is_valid_variable_name(name), f"Valid variable name rejected: {name}"
+
+    # Test C keywords (should be rejected)
+    keywords = ['int', 'if', 'else', 'for', 'while', 'return', 'break', 'continue',
+                'switch', 'case', 'default', 'char', 'float', 'double', 'void',
+                'struct', 'union', 'typedef', 'sizeof', 'auto', 'register', 'extern',
+                'static', 'const', 'volatile', 'signed', 'unsigned', 'long', 'short']
+    for keyword in keywords:
+        assert not viewer._is_valid_variable_name(keyword), f"Keyword not filtered: {keyword}"
+
+    # Test common library functions (should be rejected)
+    library_funcs = ['printf', 'scanf', 'malloc', 'free', 'calloc', 'realloc',
+                    'strlen', 'strcpy', 'strcmp', 'fopen', 'fclose', 'main', 'exit']
+    for func in library_funcs:
+        assert not viewer._is_valid_variable_name(func), f"Library function not filtered: {func}"
+
+    # Test invalid identifiers
+    invalid_names = ['123var', '@var', 'var-name', 'var name', '']
+    for name in invalid_names:
+        assert not viewer._is_valid_variable_name(name), f"Invalid identifier accepted: {name}"
+
+    print("[OK] Variable name validation test passed")
+
+
+def test_hover_timer_functionality(qtbot):
+    """Test hover timer starts and stops correctly."""
+    from ddd_clone.gui.source_viewer import SourceViewer
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtGui import QMouseEvent
+    from PyQt5.QtCore import Qt
+    from unittest.mock import Mock, patch
+
+    # Create source viewer
+    viewer = SourceViewer()
+    qtbot.addWidget(viewer)
+
+    # Load test file to have content
+    import os
+    test_file = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
+    if os.path.exists(test_file):
+        viewer.load_source_file(test_file)
+
+    # Initial state
+    assert viewer.hover_timer_active == False
+    assert viewer.current_hover_variable is None
+
+    # Simulate mouse move over a valid variable
+    # Create a mock mouse event at position (100, 50)
+    # We'll directly call mouseMoveEvent with a mock event
+    mock_event = Mock(spec=QMouseEvent)
+    mock_event.pos.return_value = QPoint(100, 50)
+    mock_event.globalPos.return_value = QPoint(200, 150)
+    mock_event.button.return_value = Qt.NoButton
+    mock_event.buttons.return_value = Qt.NoButton
+
+    # Mock cursor to return a valid variable name
+    original_cursorForPosition = viewer.cursorForPosition
+    mock_cursor = Mock()
+    mock_cursor.select = Mock()
+    mock_cursor.selectedText.return_value = 'myVariable'
+    viewer.cursorForPosition = Mock(return_value=mock_cursor)
+
+    # Patch super().mouseMoveEvent to avoid TypeError with Mock object
+    with patch.object(SourceViewer.__bases__[0], 'mouseMoveEvent') as mock_super:
+        # Call mouseMoveEvent
+        viewer.mouseMoveEvent(mock_event)
+
+        # Verify timer started
+        assert viewer.hover_timer_active == True
+        assert viewer.current_hover_variable == 'myVariable'
+        assert viewer.hover_timer.isActive() == True
+        mock_super.assert_called_once_with(mock_event)
+
+        # Reset mock for next call
+        mock_super.reset_mock()
+
+        # Simulate another mouse move to stop timer
+        mock_cursor.selectedText.return_value = 'anotherVar'
+        viewer.mouseMoveEvent(mock_event)
+
+        # Timer should be stopped and restarted with new variable
+        assert viewer.current_hover_variable == 'anotherVar'
+        mock_super.assert_called_once_with(mock_event)
+
+        # Reset mock for next call
+        mock_super.reset_mock()
+
+        # Simulate mouse move to invalid area
+        mock_cursor.selectedText.return_value = 'int'  # keyword
+        viewer.mouseMoveEvent(mock_event)
+
+        # Timer should be stopped and variable cleared
+        assert viewer.hover_timer_active == False
+        assert viewer.current_hover_variable is None
+        assert viewer.hover_timer.isActive() == False
+        mock_super.assert_called_once_with(mock_event)
+
+    # Restore original method
+    viewer.cursorForPosition = original_cursorForPosition
+
+    print("[OK] Hover timer functionality test passed")

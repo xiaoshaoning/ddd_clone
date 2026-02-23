@@ -3,7 +3,7 @@ Source code viewer with syntax highlighting.
 """
 
 from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QMouseEvent
 
 from .line_number_area import LineNumberArea
@@ -36,6 +36,14 @@ class SourceViewer(QPlainTextEdit):
         self.current_file = None
         self.breakpoint_lines = set()
         self.variable_values = {}  # Store variable values for tooltips
+
+        # Hover timer for delayed variable inspection
+        self.hover_timer = QTimer()
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.timeout.connect(self._handle_hover_timeout)
+        self.current_hover_variable = None
+        self.last_hover_pos = None
+        self.hover_timer_active = False
 
         # Line number area
         self.line_number_area = LineNumberArea(self)
@@ -296,25 +304,45 @@ class SourceViewer(QPlainTextEdit):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse movement for variable tooltips."""
+        """Handle mouse movement for variable tooltips with delay."""
         # Get cursor position and extract potential variable name
         cursor = self.cursorForPosition(event.pos())
         cursor.select(QTextCursor.WordUnderCursor)
         variable_name = cursor.selectedText().strip()
 
+        # Stop any existing hover timer
+        if self.hover_timer_active:
+            self.hover_timer.stop()
+            self.hover_timer_active = False
+
         # Check if we're over a valid variable name
         if variable_name and self._is_valid_variable_name(variable_name):
-            # Emit signal for variable hover (this triggers GDB query)
-            self.variable_hovered.emit(variable_name)
+            # Store variable name and mouse position for later use
+            self.current_hover_variable = variable_name
+            self.last_hover_pos = event.globalPos()
 
-            # Show tooltip with current value (either actual value or "Loading...")
-            current_value = self.get_variable_value(variable_name)
-            QToolTip.showText(event.globalPos(), f"{variable_name}: {current_value}", self)
+            # Start 2-second delay timer
+            self.hover_timer.start(2000)  # 2000 milliseconds = 2 seconds
+            self.hover_timer_active = True
+            print(f"Hover timer started for variable: {variable_name}")
         else:
-            # Hide tooltip if not over a variable
+            # Hide tooltip if not over a valid variable
             QToolTip.hideText()
+            self.current_hover_variable = None
 
         super().mouseMoveEvent(event)
+
+    def _handle_hover_timeout(self):
+        """Handle hover timer timeout - query variable value after delay."""
+        if self.current_hover_variable and self.last_hover_pos:
+            print(f"Hover timeout for variable: {self.current_hover_variable}")
+            # Emit signal for variable hover (this triggers GDB query)
+            self.variable_hovered.emit(self.current_hover_variable)
+
+            # Show tooltip with "Loading..." message
+            QToolTip.showText(self.last_hover_pos, f"{self.current_hover_variable}: Loading...", self)
+        else:
+            print(f"Hover timeout but no valid variable")
 
     def _is_valid_variable_name(self, text: str) -> bool:
         """
@@ -339,8 +367,22 @@ class SourceViewer(QPlainTextEdit):
             if not (char.isalnum() or char == '_'):
                 return False
 
-        # Avoid common keywords and operators
-        keywords = {'if', 'else', 'for', 'while', 'return', 'break', 'continue', 'switch', 'case', 'default'}
+        # Avoid C/C++ keywords and common library functions
+        keywords = {
+            # C keywords
+            'auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double',
+            'else', 'enum', 'extern', 'float', 'for', 'goto', 'if', 'int', 'long', 'register',
+            'return', 'short', 'signed', 'sizeof', 'static', 'struct', 'switch', 'typedef',
+            'union', 'unsigned', 'void', 'volatile', 'while',
+            # C++ keywords (common subset)
+            'bool', 'catch', 'class', 'const_cast', 'delete', 'dynamic_cast', 'explicit',
+            'false', 'friend', 'inline', 'mutable', 'namespace', 'new', 'operator',
+            'private', 'protected', 'public', 'reinterpret_cast', 'static_cast', 'template',
+            'this', 'throw', 'true', 'try', 'typeid', 'typename', 'using', 'virtual',
+            # Common library functions (to reduce false positives)
+            'printf', 'scanf', 'malloc', 'free', 'calloc', 'realloc', 'sizeof', 'strlen',
+            'strcpy', 'strcmp', 'fopen', 'fclose', 'fread', 'fwrite', 'main', 'exit'
+        }
         if text in keywords:
             return False
 
