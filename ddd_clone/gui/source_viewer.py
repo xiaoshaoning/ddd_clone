@@ -262,7 +262,7 @@ class SourceViewer(QTextEdit):
             scroll_cursor.movePosition(QTextCursor.Down)
         scroll_cursor.movePosition(QTextCursor.StartOfLine)
         self.setTextCursor(scroll_cursor)
-        self.centerCursor()
+        self.ensureCursorVisible()
 
         # Emit signal
         self.current_line_changed.emit(line_number)
