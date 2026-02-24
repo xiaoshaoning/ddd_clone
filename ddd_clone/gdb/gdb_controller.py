@@ -422,8 +422,8 @@ class GDBController(QObject):
         # Simple parsing: find variables array
         import re
 
-        # Debug: print first 500 chars of response to see array values
-        print(f"[DEBUG] get_variables response (first 500): {content[:500]}")
+        # Debug: print full response to see what GDB returns
+        print(f"[DEBUG] get_variables full response: result_type='{result_type}', content='{content}'")
 
         # Find variables array pattern
         match = re.search(r'variables=\[([^\]]*)\]', content)
@@ -450,10 +450,14 @@ class GDBController(QObject):
             # Parse key-value pairs
             var_dict = {}
             # Split by comma, but respect quoted strings
-            # Match any key that doesn't contain equals or quotes, followed by ="value"
-            # This handles keys like "type", "value", "name", "addr", etc.
-            pattern = r'([^="\s]+?)="([^"]*)"'
-            for key, value in re.findall(pattern, entry):
+            # Match key=value pairs, handling optional comma and whitespace before key
+            # Pattern: (optional comma or start) whitespace* key="value"
+            # Key cannot contain =, ", comma, or whitespace
+            pattern = r'(?:,|^)\s*([^=",\s]+?)="([^"]*)"'
+            matches = re.findall(pattern, entry)
+            # Debug: print matches for this entry
+            print(f"[DEBUG] entry: '{entry}', matches: {matches}")
+            for key, value in matches:
                 var_dict[key] = value
 
             if var_dict:
