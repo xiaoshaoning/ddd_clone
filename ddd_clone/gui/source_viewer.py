@@ -13,6 +13,9 @@ try:
     from pygments import highlight
     from pygments.lexers import get_lexer_by_name
     from pygments.formatters import HtmlFormatter
+    from pygments.styles import get_style_by_name
+    from pygments.token import Token, String, _TokenType
+    from pygments.style import Style
     PYGMENTS_AVAILABLE = True
 except ImportError:
     PYGMENTS_AVAILABLE = False
@@ -36,6 +39,7 @@ class SourceViewer(QTextEdit):
         self.current_file = None
         self.breakpoint_lines = set()
         self.variable_values = {}  # Store variable values for tooltips
+        self.highlight_style = "xcode"  # Default pygments style for syntax highlighting
 
         # Hover timer for delayed variable inspection
         self.hover_timer = QTimer()
@@ -144,6 +148,63 @@ class SourceViewer(QTextEdit):
         except Exception as e:
             self.setPlainText(f"Error loading file {file_path}: {e}")
 
+    def _get_style_for_highlighting(self):
+        """
+        Get the style to use for syntax highlighting.
+        Returns either a style name or a Style class.
+        """
+        if not PYGMENTS_AVAILABLE:
+            return None
+
+        # If style is 'pastie', create a custom version with VS-like string colors
+        if self.highlight_style == 'pastie':
+            try:
+                # Get the original pastie and vs styles
+                pastie_style = get_style_by_name('pastie')
+                vs_style = get_style_by_name('vs')
+
+                # Create a copy of pastie styles dictionary
+                styles_dict = dict(pastie_style.styles)
+
+                # Get VS string style (e.g., '#a31515')
+                vs_string_style = vs_style.styles.get(String)
+                if vs_string_style is None:
+                    # Fallback to original if VS doesn't define string style
+                    vs_string_style = styles_dict.get(String, '#a31515')
+
+                # Helper function to check if a token is a string-related token
+                def is_string_token(token):
+                    """Check if token is String or any descendant of String."""
+                    if token is String:
+                        return True
+                    if not isinstance(token, _TokenType):
+                        return False
+                    # Walk up the parent chain
+                    current = token
+                    while current is not None and current != Token:
+                        if current == String:
+                            return True
+                        current = current.parent
+                    return False
+
+                # Apply VS string style to all String-like tokens
+                for token in list(styles_dict.keys()):  # Use list to avoid modification during iteration
+                    if is_string_token(token):
+                        styles_dict[token] = vs_string_style
+
+                # Dynamically create a custom Style class
+                class CustomPastieStyle(Style):
+                    styles = styles_dict
+
+                return CustomPastieStyle
+            except Exception as e:
+                # Fall back to regular pastie style if there's an error
+                print(f"Error creating custom pastie style: {e}")
+                return 'pastie'
+
+        # For other styles, return the style name
+        return self.highlight_style
+
     def _load_with_syntax_highlighting(self, source_code: str, file_path: str):
         """
         Load source code with syntax highlighting using pygments.
@@ -158,9 +219,13 @@ class SourceViewer(QTextEdit):
             lexer = get_lexer_by_name(language)
 
             # Create HTML formatter with transparent background
-            # Use 'pastie' style for good contrast on light backgrounds
+            # Use current highlight style (with custom modifications for pastie)
+            style = self._get_style_for_highlighting()
+            if style is None:
+                style = self.highlight_style  # Fallback to style name
+
             formatter = HtmlFormatter(
-                style='pastie',
+                style=style,
                 noclasses=True,
                 nobackground=True
             )
@@ -176,8 +241,34 @@ class SourceViewer(QTextEdit):
 
         except Exception as e:
             # Fallback to plain text if highlighting fails
-            # print(f"Syntax highlighting failed: {e}")
+            print(f"Syntax highlighting failed: {e}")
             self.setPlainText(source_code)
+
+    def set_syntax_highlight_style(self, style: str) -> bool:
+        """
+        Set syntax highlighting style and reload current file if loaded.
+
+        Args:
+            style: Pygments style name (e.g., 'pastie', 'friendly', 'monokai')
+
+        Returns:
+            bool: True if style was set successfully, False otherwise
+        """
+        old_style = self.highlight_style
+        self.highlight_style = style
+
+        # Reload current file if it exists to apply new style
+        if self.current_file:
+            try:
+                current_line = self.current_line
+                self.load_source_file(self.current_file, current_line if current_line > 0 else -1)
+                return True
+            except Exception as e:
+                # Revert to old style on error
+                self.highlight_style = old_style
+                print(f"Failed to apply syntax highlighting style '{style}': {e}")
+                return False
+        return True
 
     def _get_language_from_file(self, file_path: str) -> str:
         """

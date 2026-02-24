@@ -8,7 +8,8 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
     QAction, QStatusBar, QLabel, QMessageBox, QMenuBar, QMenu, QFileDialog,
-    QLineEdit, QPushButton, QHBoxLayout, QToolTip, QDialog, QComboBox
+    QLineEdit, QPushButton, QHBoxLayout, QToolTip, QDialog, QComboBox,
+    QSpacerItem, QSizePolicy, QToolButton
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         # Register display settings
         self.register_format = "x"  # Default: hexadecimal
         self.previous_register_values = {}  # For change detection
+        self.syntax_highlight_style = "xcode"  # Default syntax highlighting style
 
         self.setup_ui()
         self.connect_signals()
@@ -263,6 +265,46 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         toolbar.addAction(exit_action)
 
+        # Add spacer to push preference button to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        toolbar.addWidget(spacer)
+
+        # Dropdown button for syntax highlighting preferences
+        self.syntax_highlight_button = QToolButton(self)
+        self.syntax_highlight_button.setFont(toolbar_font)
+        self.syntax_highlight_button.setText(f"Syntax: {self.syntax_highlight_style}")
+        self.syntax_highlight_button.setPopupMode(QToolButton.InstantPopup)
+
+        # Create menu with available styles
+        syntax_menu = QMenu(self.syntax_highlight_button)
+
+        # Available pygments styles (selected for light backgrounds)
+        available_styles = [
+            "pastie",        # Current default - good contrast
+            "friendly",      # Clean and readable
+            "tango",         # Based on Tango desktop palette
+            "perldoc",       # Like perldoc, good for light backgrounds
+            "vs",            # Visual Studio-like
+            "xcode",         # Xcode-like
+            "solarized-light", # Solarized light theme
+            "default",       # Pygments default style
+            "colorful",      # Colorful style
+            "autumn",        # Autumn colors
+            "borland",       # Borland style
+            "vim",           # Vim style
+            "rrt",           # Pygments style
+            "native",        # Native style
+        ]
+
+        for style in available_styles:
+            action = QAction(style, self)
+            action.triggered.connect(lambda checked, s=style: self._on_syntax_style_selected(s))
+            syntax_menu.addAction(action)
+
+        self.syntax_highlight_button.setMenu(syntax_menu)
+        toolbar.addWidget(self.syntax_highlight_button)
+
     def _on_register_format_changed(self, format_text: str) -> None:
         """Handle register format selection change."""
         format_map = {
@@ -275,6 +317,87 @@ class MainWindow(QMainWindow):
         # Update register display if program is stopped
         if self.gdb_controller.current_state['state'] == 'stopped':
             self._update_registers_tree()
+
+    def _on_syntax_style_selected(self, style: str) -> None:
+        """Handle syntax highlighting style selection from dropdown menu."""
+        if style != self.syntax_highlight_style:
+            success = self.source_viewer.set_syntax_highlight_style(style)
+            if success:
+                self.syntax_highlight_style = style
+                # Update button text
+                self.syntax_highlight_button.setText(f"Syntax: {style}")
+
+    def show_syntax_highlight_preferences(self) -> None:
+        """Show dialog for selecting syntax highlighting style."""
+        # Available pygments styles (selected for light backgrounds)
+        available_styles = [
+            "pastie",        # Current default - good contrast
+            "friendly",      # Clean and readable
+            "tango",         # Based on Tango desktop palette
+            "perldoc",       # Like perldoc, good for light backgrounds
+            "vs",            # Visual Studio-like
+            "xcode",         # Xcode-like
+            "solarized-light", # Solarized light theme
+            "default",       # Pygments default style
+            "colorful",      # Colorful style
+            "autumn",        # Autumn colors
+            "borland",       # Borland style
+            "vim",           # Vim style
+            "rrt",           # Pygments style
+            "native",        # Native style
+        ]
+
+        # Create dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Syntax Highlighting Preferences")
+        dialog.setModal(True)
+        layout = QVBoxLayout(dialog)
+
+        # Style selection
+        style_label = QLabel("Select syntax highlighting style:")
+        style_label.setFont(QFont("Arial", 14))
+        layout.addWidget(style_label)
+
+        style_combo = QComboBox()
+        style_combo.setFont(QFont("Arial", 14))
+        style_combo.addItems(available_styles)
+        # Set current selection
+        current_style = self.source_viewer.highlight_style
+        current_index = style_combo.findText(current_style)
+        if current_index >= 0:
+            style_combo.setCurrentIndex(current_index)
+        layout.addWidget(style_combo)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        ok_button.setFont(QFont("Arial", 14))
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setFont(QFont("Arial", 14))
+
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+
+        # Connect signals
+        def on_ok():
+            new_style = style_combo.currentText()
+            current_style = self.source_viewer.highlight_style
+            if new_style != current_style:
+                # Try to apply new style
+                success = self.source_viewer.set_syntax_highlight_style(new_style)
+                if success:
+                    # Update main window's style tracking
+                    self.syntax_highlight_style = new_style
+            dialog.accept()
+
+        def on_cancel():
+            dialog.reject()
+
+        ok_button.clicked.connect(on_ok)
+        cancel_button.clicked.connect(on_cancel)
+
+        dialog.exec_()
 
     def create_menu_bar(self) -> None:
         """Create the menu bar."""

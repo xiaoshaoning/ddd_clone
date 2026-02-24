@@ -195,3 +195,46 @@ def test_register_change_highlighting(qtbot):
     # Verify previous values were stored
     assert 'rax' in window.previous_register_values
     assert window.previous_register_values['rax'] == '0x1001'
+
+
+def test_syntax_highlight_dropdown_button(qtbot):
+    """Test syntax highlighting dropdown button creation and interaction."""
+    # Create mock GDB controller
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+
+    # Create main window
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    # Verify syntax highlight button exists
+    assert hasattr(window, 'syntax_highlight_button')
+    assert window.syntax_highlight_button is not None
+
+    # Verify button text contains current style
+    assert "Syntax:" in window.syntax_highlight_button.text()
+
+    # Verify menu exists
+    assert window.syntax_highlight_button.menu() is not None
+
+    # Verify menu has actions for each style
+    menu = window.syntax_highlight_button.menu()
+    assert len(menu.actions()) > 0
+
+    # Test style selection
+    original_style = window.syntax_highlight_style
+    new_style = "friendly" if original_style != "friendly" else "tango"
+
+    # Mock the source viewer method
+    mock_source_viewer = window.source_viewer
+    mock_source_viewer.set_syntax_highlight_style = Mock(return_value=True)
+
+    # Trigger style selection
+    window._on_syntax_style_selected(new_style)
+
+    # Verify style was updated
+    assert window.syntax_highlight_style == new_style
+    assert f"Syntax: {new_style}" in window.syntax_highlight_button.text()
+
+    # Verify source viewer was called
+    mock_source_viewer.set_syntax_highlight_style.assert_called_once_with(new_style)
