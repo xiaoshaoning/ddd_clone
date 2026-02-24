@@ -249,6 +249,20 @@ class MainWindow(QMainWindow):
         self.register_format_combo.currentTextChanged.connect(self._on_register_format_changed)
         toolbar.addWidget(self.register_format_combo)
 
+        # Add separator
+        toolbar.addSeparator()
+
+        # Quit and Exit buttons
+        quit_action = QAction("Quit", self)
+        quit_action.setFont(toolbar_font)
+        quit_action.triggered.connect(self.quit_gdb_session)
+        toolbar.addAction(quit_action)
+
+        exit_action = QAction("Exit", self)
+        exit_action.setFont(toolbar_font)
+        exit_action.triggered.connect(self.close)
+        toolbar.addAction(exit_action)
+
     def _on_register_format_changed(self, format_text: str) -> None:
         """Handle register format selection change."""
         format_map = {
@@ -264,38 +278,9 @@ class MainWindow(QMainWindow):
 
     def create_menu_bar(self) -> None:
         """Create the menu bar."""
-        menu_bar = QMenuBar(self)
-        self.setMenuBar(menu_bar)
-
-        # File menu
-        file_menu = QMenu("File", self)
-        menu_bar.addMenu(file_menu)
-
-        # Open program action
-        open_action = QAction("Open Program...", self)
-        open_action.triggered.connect(self.open_program)
-        file_menu.addAction(open_action)
-
-        # Add separator
-        file_menu.addSeparator()
-
-        # Save breakpoints action
-        save_bp_action = QAction("Save Breakpoints...", self)
-        save_bp_action.triggered.connect(self.save_breakpoints)
-        file_menu.addAction(save_bp_action)
-
-        # Load breakpoints action
-        load_bp_action = QAction("Load Breakpoints...", self)
-        load_bp_action.triggered.connect(self.load_breakpoints)
-        file_menu.addAction(load_bp_action)
-
-        # Add separator
-        file_menu.addSeparator()
-
-        # Exit action
-        exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        # No menu bar needed - all functionality is in toolbar
+        # Set menu bar to None to completely hide it
+        self.setMenuBar(None)
 
     def create_status_bar(self) -> None:
         """Create the status bar."""
@@ -457,9 +442,15 @@ class MainWindow(QMainWindow):
     def _clean_gdb_output(self, output: str) -> str:
         """Clean GDB/MI output by removing prefixes and formatting."""
         import re
-        # Remove GDB/MI prefixes like ~, =, ^, &, etc.
-        if output.startswith('~'):
-            # Remove ~" and trailing quote
+
+        # First check if this is a variable print output or error message
+        # Variable print output typically looks like: ~"$1 = 5"
+        # Error messages typically start with ^error or &"Error
+
+        # Extract the actual content regardless of prefix
+        cleaned = ""
+        if output.startswith('~') or output.startswith('&'):
+            # Remove prefix and quotes for console output
             cleaned = output[2:-1] if output.endswith('"') else output[2:]
             # Remove escaped newlines
             cleaned = cleaned.replace('\\n', '\n')
@@ -468,73 +459,84 @@ class MainWindow(QMainWindow):
                 cleaned = cleaned[1:-1]
             # Remove escaped quotes and backslashes
             cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-            # Filter out common noise messages
-            if self._should_filter_output(cleaned):
-                return ""
-            # Remove ANSI escape codes
-            cleaned = self._remove_ansi_escape_codes(cleaned)
-            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
-            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
-            return cleaned
-        elif output.startswith('&'):
-            # Remove &" and trailing quote
-            cleaned = output[2:-1] if output.endswith('"') else output[2:]
-            # Remove escaped newlines
-            cleaned = cleaned.replace('\\n', '\n')
-            # Remove single quotes if they wrap the entire output
-            if cleaned.startswith("'") and cleaned.endswith("'"):
-                cleaned = cleaned[1:-1]
-            # Remove escaped quotes and backslashes
-            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-            # Filter out common noise messages
-            if self._should_filter_output(cleaned):
-                return ""
-            # Remove ANSI escape codes
-            cleaned = self._remove_ansi_escape_codes(cleaned)
-            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
-            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
-            return cleaned
         elif output.startswith('='):
-            # Skip MI result records for now
-            return ""
+            # MI result records - check if they contain variable values
+            # Look for patterns like =thread-group-started or =breakpoint-created
+            # We'll skip most of these unless they contain error information
+            if 'error' in output.lower():
+                # Extract error message from MI output
+                cleaned = output
+            else:
+                return ""
         elif output.startswith('^'):
-            # Skip MI result records
-            return ""
+            # MI result records - check for errors
+            if output.startswith('^error'):
+                # This is an error message, extract it
+                # Pattern: ^error,msg="Error message here"
+                match = re.search(r'msg="([^"]+)"', output)
+                if match:
+                    error_msg = match.group(1)
+                    # Filter out "Undefined MI command: exec-abort" error
+                    if "Undefined MI command: exec-abort" in error_msg:
+                        return ""
+                    cleaned = f"Error: {error_msg}"
+                else:
+                    cleaned = "Error (no message)"
+            else:
+                # Skip other ^ records
+                return ""
         elif output.strip() == '(gdb)':
             # Skip prompt
             return ""
         elif output.startswith('*'):
-            # Handle async output like *running
-            cleaned = output[1:].strip()
-            # Remove escaped quotes and backslashes
-            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-            # Filter out common noise messages
-            if self._should_filter_output(cleaned):
-                return ""
-            # Remove ANSI escape codes
-            cleaned = self._remove_ansi_escape_codes(cleaned)
-            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
-            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
-            return cleaned
+            # Async output like *running, *stopped
+            # Skip these as they are not user-requested variable prints
+            return ""
         else:
-            # Return other output as-is
+            # Other output - keep as-is but check if it's variable or error
             cleaned = output.strip()
-            # Remove single quotes if they wrap the entire output
+            # Remove quotes
             if cleaned.startswith("'") and cleaned.endswith("'"):
                 cleaned = cleaned[1:-1]
-            # Remove double quotes if they wrap the entire output
             if cleaned.startswith('"') and cleaned.endswith('"'):
                 cleaned = cleaned[1:-1]
-            # Remove escaped quotes and backslashes
             cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-            # Filter out common noise messages
-            if self._should_filter_output(cleaned):
-                return ""
-            # Remove ANSI escape codes
-            cleaned = self._remove_ansi_escape_codes(cleaned)
-            # Remove quotes around source code lines (e.g., "12\t    return n * factorial(n - 1);")
+
+        # Now check if this cleaned output should be displayed
+        # Only show: variable print output and error messages
+
+        # Check for variable print pattern: $number = value
+        variable_pattern = r'^\$\d+\s*='
+        # Check for error pattern
+        error_pattern = r'(?i)error|failed|cannot|unable|invalid|unknown|not found'
+
+        is_variable_output = re.search(variable_pattern, cleaned) is not None
+        is_error_output = re.search(error_pattern, cleaned) is not None
+
+        # Also check if it's a result of a print command (might not have $ prefix)
+        # Some print outputs might be just the value without $ prefix
+        # We'll track user commands to know what to show, but for now use simpler approach
+
+        # Remove ANSI escape codes
+        cleaned = self._remove_ansi_escape_codes(cleaned)
+
+        # Only return if it's variable output or error
+        if is_variable_output or is_error_output:
+            # Clean up quotes around source code lines if present
             cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
+            # Remove $number = prefix for variable output
+            if is_variable_output:
+                cleaned = re.sub(r'^\$\d+\s*=\s*', '', cleaned)
+                # Strip whitespace (including newlines) from start and end
+                cleaned = cleaned.strip()
+                # Remove quotes around the value if present
+                if cleaned.startswith('"') and cleaned.endswith('"'):
+                    cleaned = cleaned[1:-1]
+                elif cleaned.startswith("'") and cleaned.endswith("'"):
+                    cleaned = cleaned[1:-1]
             return cleaned
+        else:
+            return ""
 
     def _should_filter_output(self, output: str) -> bool:
         """Check if output should be filtered out as noise."""
@@ -1146,3 +1148,30 @@ class MainWindow(QMainWindow):
                 # Note: Breakpoints tree update is handled via signals
             else:
                 self.status_label.setText("Failed to load breakpoints")
+
+    def quit_gdb_session(self) -> None:
+        """Stop current debugging session (kill program but keep GDB running)."""
+        if not self.gdb_controller:
+            self.status_label.setText("No GDB controller")
+            return
+
+        state = self.gdb_controller.current_state['state']
+
+        # Only react if program is running or stopped (being debugged)
+        if state in ['running', 'stopped']:
+            if self.gdb_controller.kill():
+                self.status_label.setText("Program killed")
+                # Update state to exited
+                self.gdb_controller.current_state['state'] = 'exited'
+                self.gdb_controller.current_state['line'] = None
+                self.gdb_controller.current_state['file'] = None
+                self.gdb_controller.current_state['function'] = None
+                self.gdb_controller.state_changed.emit(self.gdb_controller.current_state.copy())
+            else:
+                self.status_label.setText("Failed to kill program")
+        elif state == 'exited':
+            self.status_label.setText("Program already exited")
+        elif state == 'disconnected':
+            self.status_label.setText("No active debugging session")
+        else:
+            self.status_label.setText(f"No program running (state: {state})")

@@ -242,6 +242,10 @@ class GDBController(QObject):
         """Continue program execution."""
         return self.send_command("-exec-continue")
 
+    def kill(self) -> bool:
+        """Kill the program being debugged."""
+        return self.send_command("kill")
+
     def set_breakpoint(self, file: str, line: int, condition: Optional[str] = None) -> bool:
         """
         Set a breakpoint.
