@@ -105,7 +105,7 @@ class LineNumberArea(QWidget):
 
                 # Draw breakpoint marker if this line has a breakpoint
                 if line_number in self.source_viewer.breakpoint_lines:
-                    # Draw transparent red box with diagonals around line number
+                    # Draw transparent red box around line number
                     # Calculate text width for proper box sizing
                     text_width = painter.fontMetrics().horizontalAdvance(number)
                     # Box dimensions with padding
@@ -121,15 +121,6 @@ class LineNumberArea(QWidget):
                     painter.setBrush(QBrush(QColor(255, 0, 0, 64)))  # Semi-transparent red fill
                     painter.setPen(QColor(255, 0, 0))  # Solid red border
                     painter.drawRect(box_left, box_top, box_width, box_height)
-
-                    # Draw diagonal lines (X shape)
-                    painter.setPen(QColor(255, 0, 0))  # Red lines
-                    # Top-left to bottom-right
-                    painter.drawLine(box_left, box_top,
-                                    box_left + box_width, box_top + box_height)
-                    # Top-right to bottom-left
-                    painter.drawLine(box_left + box_width, box_top,
-                                    box_left, box_top + box_height)
 
                 # Draw line number
                 number = str(line_number)
