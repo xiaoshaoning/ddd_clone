@@ -618,6 +618,37 @@ class MainWindow(QMainWindow):
         if re.match(r'.*to search for commands.*', output, re.IGNORECASE):
             return True
 
+        # Filter MI command responses (e.g., "1^done,register-names=...", "2^done,register-values=...")
+        if re.match(r'^\d+\^done,.*', output):
+            return True
+        if re.match(r'^\d+\^error,.*', output):
+            return True
+
+        # Filter GDB status messages (but keep breakpoint hits and source lines per user request)
+        if re.match(r'^Reading symbols from.*', output):
+            return True
+        if re.match(r'^\[New Thread.*\]', output):
+            return True
+        # Note: Thread hit Breakpoint and source code lines are kept - DO NOT filter them
+        # if re.match(r'^Thread \d+ hit Breakpoint.*', output):
+        #     return True
+        # if re.match(r'^\d+\s+.*at .*:\d+', output):  # Source code lines like "33    fib_result = fibonacci(number);"
+        #     return True
+        # if re.match(r'.* at .*:\d+', output):  # Function at file:line
+        #     return True
+
+        # Filter empty or mostly empty Type messages
+        if output.strip() == 'Type ""':
+            return True
+        if output.strip() == 'Type':
+            return True
+        if re.match(r'^Type\s*"?"?$', output):  # Type "" or Type "?"
+            return True
+
+        # Filter lines that are just punctuation, quotes, or very short
+        if len(output.strip()) <= 3 and re.match(r'^[\s\"\'\\\.\?]*$', output):
+            return True
+
         return False
 
     def _remove_ansi_escape_codes(self, text: str) -> str:
