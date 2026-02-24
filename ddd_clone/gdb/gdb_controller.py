@@ -422,7 +422,7 @@ class GDBController(QObject):
         import re
 
         # Debug: print first 500 chars of response to see array values
-        # print(f"[DEBUG] get_variables response (first 500): {content[:500]}")
+        print(f"[DEBUG] get_variables response (first 500): {content[:500]}")
 
         # Find variables array pattern
         match = re.search(r'variables=\[([^\]]*)\]', content)
@@ -456,6 +456,9 @@ class GDBController(QObject):
 
             if var_dict:
                 variables.append(var_dict)
+
+        # Debug: print parsed variables
+        print(f"[DEBUG] parsed variables: {variables}")
 
         return variables
 
