@@ -1030,7 +1030,7 @@ class MainWindow(QMainWindow):
         # Find the watchpoint by expression and type
         watchpoint_id = None
         for wp_id, wp in self.breakpoint_manager.get_watchpoints().items():
-            if wp.expression == expression and wp.watchpoint_type == watchpoint_type:
+            if wp.expression == expression and wp.watch_type == watchpoint_type:
                 watchpoint_id = wp_id
                 break
 
@@ -1082,7 +1082,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(type_label)
         type_combo = QComboBox(dialog)
         type_combo.addItems(["write", "read", "access"])
-        type_combo.setCurrentText(watchpoint.watchpoint_type)
+        type_combo.setCurrentText(watchpoint.watch_type)
         layout.addWidget(type_combo)
 
         # Buttons

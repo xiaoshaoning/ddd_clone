@@ -292,14 +292,33 @@ class GDBController(QObject):
         Returns:
             bool: True if watchpoint was set successfully
         """
+        # Clean and validate inputs
+        expression = expression.strip()
+        if not expression:
+            return False
+
+        watch_type = watch_type.strip().lower()
+
+        # Validate watch_type
+        valid_types = {"write", "read", "access"}
+        if watch_type not in valid_types:
+            watch_type = "write"
+
         # GDB/MI command: -break-watch [ -a | -r | -w ] expression
         type_flag = {
             "write": "-w",
             "read": "-r",
             "access": "-a"
-        }.get(watch_type, "-w")
+        }[watch_type]  # Now guaranteed to be valid
 
-        cmd = f"-break-watch {type_flag} {expression}"
+        # Quote expression if it contains spaces and isn't already quoted
+        quoted_expression = expression
+        if ' ' in expression and not (expression.startswith('"') and expression.endswith('"')):
+            quoted_expression = f'"{expression}"'
+
+        cmd = f"-break-watch {type_flag} {quoted_expression}"
+        # Debug: print command
+        print(f"[DEBUG] set_watchpoint command: '{cmd}'")
         return self.send_command(cmd)
 
     def get_registers(self) -> List[Dict[str, str]]:
