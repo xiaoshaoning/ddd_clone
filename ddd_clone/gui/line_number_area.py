@@ -105,13 +105,31 @@ class LineNumberArea(QWidget):
 
                 # Draw breakpoint marker if this line has a breakpoint
                 if line_number in self.source_viewer.breakpoint_lines:
-                    # Draw red circle for breakpoint (left of line numbers)
-                    painter.setBrush(QBrush(QColor(255, 0, 0)))  # Red
-                    painter.setPen(Qt.NoPen)
-                    marker_size = 8
-                    marker_x = 6  # Position to the left of line numbers
-                    marker_y = int(top) + (block_height - marker_size) // 2
-                    painter.drawEllipse(marker_x, marker_y, marker_size, marker_size)
+                    # Draw transparent red box with diagonals around line number
+                    # Calculate text width for proper box sizing
+                    text_width = painter.fontMetrics().horizontalAdvance(number)
+                    # Box dimensions with padding
+                    box_padding = 4
+                    box_width = text_width + box_padding * 2
+                    box_height = block_height - 2  # Slightly smaller than line height
+                    # Position box to align with right-aligned line numbers
+                    box_right = self.width() - 5  # Same right edge as line numbers
+                    box_left = box_right - box_width
+                    box_top = int(top) + 1
+
+                    # Draw semi-transparent red box
+                    painter.setBrush(QBrush(QColor(255, 0, 0, 64)))  # Semi-transparent red fill
+                    painter.setPen(QColor(255, 0, 0))  # Solid red border
+                    painter.drawRect(box_left, box_top, box_width, box_height)
+
+                    # Draw diagonal lines (X shape)
+                    painter.setPen(QColor(255, 0, 0))  # Red lines
+                    # Top-left to bottom-right
+                    painter.drawLine(box_left, box_top,
+                                    box_left + box_width, box_top + box_height)
+                    # Top-right to bottom-left
+                    painter.drawLine(box_left + box_width, box_top,
+                                    box_left, box_top + box_height)
 
                 # Draw line number
                 number = str(line_number)

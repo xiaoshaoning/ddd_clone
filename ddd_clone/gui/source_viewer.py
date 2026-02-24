@@ -469,8 +469,85 @@ class SourceViewer(QTextEdit):
 
         return True
 
+    def get_line_content(self, line_number: int) -> str:
+        """
+        Get the content of a specific line.
+
+        Args:
+            line_number: 1-based line number
+
+        Returns:
+            str: Content of the line
+        """
+        if line_number <= 0:
+            return ""
+
+        cursor = QTextCursor(self.document())
+        cursor.movePosition(QTextCursor.Start)
+
+        # Move to the target line
+        for _ in range(line_number - 1):
+            cursor.movePosition(QTextCursor.Down)
+
+        # Select the entire line
+        cursor.movePosition(QTextCursor.StartOfLine)
+        cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.KeepAnchor)
+
+        return cursor.selectedText()
+
+    def is_code_line(self, line_number: int) -> bool:
+        """
+        Check if a line is valid for breakpoints (not empty, not comment).
+
+        Args:
+            line_number: 1-based line number
+
+        Returns:
+            bool: True if line can have a breakpoint
+        """
+        line_text = self.get_line_content(line_number)
+        # Remove leading/trailing whitespace
+        stripped = line_text.strip()
+
+        # Empty line or whitespace-only line
+        if not stripped:
+            return False
+
+        # Check for C/C++ single line comment
+        if stripped.startswith('//'):
+            return False
+
+        # Check for C/C++ multi-line comment start (/*)
+        # Remove leading whitespace first
+        lstrip_line = line_text.lstrip()
+        if lstrip_line.startswith('/*'):
+            return False
+
+        # Check for lines that are only a comment closing (*/)
+        # This is less common but could happen
+        if stripped.startswith('*/') or stripped.endswith('*/'):
+            # Could be a line with only */ or something like "} */"
+            # For simplicity, reject lines containing only */ or starting with */
+            if stripped == '*/' or stripped.startswith('*/'):
+                return False
+
+        # TODO: Handle multi-line comments more accurately
+        # For now, accept all other lines
+        return True
+
     def toggle_breakpoint(self, line_number: int):
         """Toggle breakpoint at specified line."""
+        # Allow removing existing breakpoints even on non-code lines
+        if line_number in self.breakpoint_lines:
+            # This will remove an existing breakpoint
+            self.breakpoint_toggled.emit(line_number)
+            return
+
+        # For new breakpoints, check if this line can have a breakpoint (not empty, not comment)
+        if not self.is_code_line(line_number):
+            # Silently ignore clicks on non-code lines
+            return
+
         # Emit signal first - the main window will handle actual breakpoint setting
         # The visual marker will be updated based on whether GDB successfully sets the breakpoint
         self.breakpoint_toggled.emit(line_number)
