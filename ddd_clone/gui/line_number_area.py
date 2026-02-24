@@ -19,7 +19,7 @@ class LineNumberArea(QWidget):
         super().__init__(source_viewer)
         self.source_viewer = source_viewer
         self.setFont(QFont("Courier New", 18))  # Larger font
-        self.arrow_area_width = 20  # Width for debug arrow area
+        self.arrow_area_width = 30  # Width for debug arrow area
         # Connect to current line changes to update arrow
         self.source_viewer.current_line_changed.connect(self.update)
 
@@ -113,7 +113,7 @@ class LineNumberArea(QWidget):
 
                     # Create a smaller font for the arrow
                     arrow_font = QFont(self.font())
-                    arrow_font_size = max(8, block_height // 2)  # Adjust size based on line height
+                    arrow_font_size = max(12, block_height * 3 // 4)  # Adjust size based on line height, increased by 50%
                     arrow_font.setPointSize(arrow_font_size)
 
                     # Calculate position for centered arrow
