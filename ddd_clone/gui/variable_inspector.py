@@ -2,6 +2,7 @@
 Variable inspector for displaying and managing variables during debugging.
 """
 
+import re
 from typing import Dict, List, Optional, Any
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -50,6 +51,31 @@ class VariableInspector(QObject):
         self.global_variables: List[Variable] = []
         self.watch_expressions: Dict[str, str] = {}  # expression -> value
 
+    @staticmethod
+    def _is_array_type(var_type: str) -> bool:
+        """Check if type string represents an array."""
+        return '[' in var_type and ']' in var_type
+
+    @staticmethod
+    def _parse_array_size(var_type: str) -> Optional[int]:
+        """Parse array size from type string like 'int [5]' or 'char[10]'."""
+        match = re.search(r'\[(\d+)\]', var_type)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                pass
+        return None
+
+    @staticmethod
+    def _get_array_element_type(var_type: str) -> str:
+        """Extract element type from array type string."""
+        # Remove everything after '[' including the brackets
+        match = re.match(r'([^[]+)', var_type)
+        if match:
+            return match.group(1).strip()
+        return var_type
+
     def update_variables(self):
         """
         Update variable information from GDB.
@@ -81,6 +107,10 @@ class VariableInspector(QObject):
             value = var_data.get('value', 'unknown')
             var_type = var_data.get('type', 'unknown')
             address = var_data.get('address')
+
+            # Check if this is an array with no value
+            if value == 'unknown' and self._is_array_type(var_type):
+                value = '{...}'
 
             # Create variable object
             variable = Variable(name, value, var_type, address)
@@ -230,10 +260,50 @@ class VariableInspector(QObject):
         variable = self._find_variable(variable_name)
         if variable and not variable.expanded:
             variable.expanded = True
-            # TODO: Load children from GDB
+            # Load children from GDB for arrays and structs
+            self._load_variable_children(variable)
             return True
 
         return False
+
+    def _load_variable_children(self, variable: 'Variable') -> None:
+        """
+        Load children for a variable (arrays, structs, etc.) from GDB.
+
+        Args:
+            variable: Variable object to load children for
+        """
+        # Handle arrays
+        if self._is_array_type(variable.type):
+            self._load_array_elements(variable)
+        # TODO: Handle structs and other composite types
+
+    def _load_array_elements(self, variable: 'Variable') -> None:
+        """
+        Load array elements as children of the given array variable.
+
+        Args:
+            variable: Array variable object
+        """
+        size = self._parse_array_size(variable.type)
+        if size is None or size <= 0:
+            return
+
+        # Clear any existing children
+        variable.children.clear()
+
+        for i in range(size):
+            # Evaluate array element
+            expr = f"{variable.name}[{i}]"
+            value = self.gdb_controller.evaluate_expression(expr)
+            if value is None:
+                value = 'unknown'
+
+            # Create child variable
+            child_name = f"[{i}]"
+            child_type = self._get_array_element_type(variable.type)
+            child_var = Variable(child_name, value, child_type)
+            variable.children.append(child_var)
 
     def collapse_variable(self, variable_name: str) -> bool:
         """

@@ -832,16 +832,10 @@ class MainWindow(QMainWindow):
         variables = self.gdb_controller.get_variables()
 
         for var in variables:
-            # Debug: print raw variable data
-            print(f"[DEBUG] var raw: {var}")
-
             item = QTreeWidgetItem(self.variables_tree)
             name = var.get('name', 'N/A')
             value = var.get('value', '')
             var_type = var.get('type', 'N/A')
-
-            # Debug: print extracted fields
-            print(f"[DEBUG] var extracted: name='{name}', value='{value}', type='{var_type}'")
 
             item.setText(0, name)
 

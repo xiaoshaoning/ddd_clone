@@ -166,7 +166,10 @@ class TestGDBController(unittest.TestCase):
         self.assertEqual(variables[0]['type'], 'int')
         self.assertEqual(variables[1]['name'], 'y')
         self.assertEqual(variables[1]['value'], '2')
-        mock_send_mi.assert_called_with("-stack-list-variables --simple-values")
+        # Verify both simple-values and all-values calls were made
+        assert mock_send_mi.call_count == 2
+        mock_send_mi.assert_any_call("-stack-list-variables --simple-values")
+        mock_send_mi.assert_any_call("-stack-list-variables --all-values")
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_variables_no_process(self, mock_send_mi):
