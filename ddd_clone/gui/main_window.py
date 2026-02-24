@@ -849,12 +849,8 @@ class MainWindow(QMainWindow):
             if not value:
                 # Check if it's an array type
                 if '[' in var_type or 'array' in var_type.lower():
-                    # For arrays, show type and address if available
-                    addr = var.get('addr', '')
-                    if addr:
-                        item.setText(1, f"array @ {addr}")
-                    else:
-                        item.setText(1, f"array ({var_type})")
+                    # For arrays, just show "array" since type is already in type column
+                    item.setText(1, "array")
                 else:
                     # For other types with no value, show type
                     item.setText(1, var_type)
