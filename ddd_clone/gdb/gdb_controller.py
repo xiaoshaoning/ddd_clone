@@ -434,17 +434,32 @@ class GDBController(QObject):
         # Parse individual variable entries
         # Each entry is {name="...",value="...",type="..."}
         variables = []
-        # Split by '},{' to separate entries
-        entries = re.split(r'\},\s*\{', vars_str)
-        for entry in entries:
-            # Clean up braces
-            entry = entry.strip()
-            if entry.startswith('{'):
-                entry = entry[1:]
-            if entry.endswith('}'):
-                entry = entry[:-1]
+        # Use findall to extract each {} block, handling nested braces in types like int [5]
+        # First, let's print the vars_str to see its exact content
+        print(f"[DEBUG] vars_str: '{vars_str}'")
 
-            if not entry:
+        # Find all top-level {...} entries, being careful with nested braces in types
+        # Simple approach: find all matches of { ... } where ... doesn't contain unmatched braces
+        # Since types may contain brackets like int [5], we need a more robust method
+        # Let's try parsing manually by scanning the string
+        entries = []
+        start = -1
+        brace_count = 0
+        for i, char in enumerate(vars_str):
+            if char == '{':
+                if brace_count == 0:
+                    start = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start != -1:
+                    entries.append(vars_str[start+1:i])  # Exclude braces
+                    start = -1
+
+        print(f"[DEBUG] Found {len(entries)} entries: {entries}")
+
+        for entry in entries:
+            if not entry.strip():
                 continue
 
             # Parse key-value pairs
