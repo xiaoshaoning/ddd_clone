@@ -517,6 +517,13 @@ class SourceViewer(QTextEdit):
 
     def firstVisibleBlock(self):
         """Return the first visible block in the viewport."""
+        # Get the top-left corner of the viewport (not including margins)
+        # viewport_rect = self.viewport().rect()
+        # viewport_top_left = self.viewport().mapTo(self, viewport_rect.topLeft())
+        # cursor = self.cursorForPosition(viewport_top_left)
+
+        # Actually, cursorForPosition expects viewport coordinates
+        # QPoint(0, 0) is the top-left of the viewport (after margins)
         cursor = self.cursorForPosition(QPoint(0, 0))
         return cursor.block()
 
@@ -532,8 +539,11 @@ class SourceViewer(QTextEdit):
         geometry = self.blockBoundingGeometry(block)
         if geometry.isNull():
             return QRectF()
-        # Only need height for line number area calculations
-        return QRectF(0, 0, 0, geometry.height())
+        # Convert document coordinates to viewport coordinates
+        content_offset = self.contentOffset()
+        top = geometry.top() - content_offset.y()
+        # Only need height and top position for line number area calculations
+        return QRectF(0, top, 0, geometry.height())
 
     def contentOffset(self):
         """Return the content offset (scroll position)."""
@@ -564,17 +574,21 @@ class SourceViewer(QTextEdit):
 
     def update_line_number_area(self, rect, dy):
         """Update the line number area."""
-        if dy:
-            self.line_number_area.scroll(0, dy)
-        else:
-            self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
+        # Debug: print update info
+        # print(f"update_line_number_area: dy={dy}")
+        # Always trigger a full repaint of the line number area
+        # The scroll() method doesn't work well with custom painted content
+        self.line_number_area.update()
 
         if rect.contains(self.viewport().rect()):
             self.update_line_number_area_width(0)
 
     def _handle_scroll_for_line_numbers(self):
         """Handle scroll bar value change to update line number area."""
-        self.line_number_area.update()
+        # Debug: print scroll value
+        # print(f"scroll value={self.verticalScrollBar().value()}")
+        # Call update_line_number_area with dy=0 (full repaint)
+        self.update_line_number_area(self.viewport().rect(), 0)
 
     def resizeEvent(self, event):
         """Handle resize events."""
@@ -584,3 +598,15 @@ class SourceViewer(QTextEdit):
             cr.left(), cr.top(),
             self.line_number_area_width(), cr.height()
         )
+
+    def scrollContentsBy(self, dx, dy):
+        """Override scrollContentsBy to update line number area."""
+        # Debug: only print if significant scroll
+        if abs(dy) > 10:
+            print(f"scrollContentsBy: dy={dy}")
+        super().scrollContentsBy(dx, dy)
+
+        # Update line number area with the scrolled amount
+        # dy is the vertical scroll amount in pixels
+        # update_line_number_area expects dy for scrolling the line number area
+        self.update_line_number_area(self.viewport().rect(), dy)
