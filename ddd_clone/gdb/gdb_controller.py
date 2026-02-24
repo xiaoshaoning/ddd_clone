@@ -398,6 +398,76 @@ class GDBController(QObject):
                 registers.append(reg_dict)
         return registers
 
+    def _parse_variables_response(self, content: str) -> List[Dict[str, Any]]:
+        """
+        Parse GDB MI response for -stack-list-variables.
+
+        Args:
+            content: The content part of MI response (after ^done,)
+
+        Returns:
+            List of variable dictionaries
+        """
+        import re
+
+        # Find variables array pattern
+        # Need to handle types with brackets like "int [5]" which contain ']'
+        # Match everything between the first '[' and the last ']'
+        # The pattern (.*) is greedy and will match up to the last ']'
+        match = re.search(r'variables=\[(.*)\]', content)
+        if not match:
+            return []
+
+        vars_str = match.group(1)
+        # Parse individual variable entries
+        # Each entry is {name="...",value="...",type="..."}
+        variables = []
+        # Use findall to extract each {} block, handling nested braces in types like int [5]
+        # First, let's print the vars_str to see its exact content
+        print(f"[DEBUG] vars_str: '{vars_str}'")
+
+        # Find all top-level {...} entries, being careful with nested braces in types
+        # Simple approach: find all matches of { ... } where ... doesn't contain unmatched braces
+        # Since types may contain brackets like int [5], we need a more robust method
+        # Let's try parsing manually by scanning the string
+        entries = []
+        start = -1
+        brace_count = 0
+        for i, char in enumerate(vars_str):
+            if char == '{':
+                if brace_count == 0:
+                    start = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start != -1:
+                    entries.append(vars_str[start+1:i])  # Exclude braces
+                    start = -1
+
+        print(f"[DEBUG] Found {len(entries)} entries: {entries}")
+
+        for entry in entries:
+            if not entry.strip():
+                continue
+
+            # Parse key-value pairs
+            var_dict = {}
+            # Split by comma, but respect quoted strings
+            # Match key=value pairs, handling optional comma and whitespace before key
+            # Pattern: (optional comma or start) whitespace* key="value"
+            # Key cannot contain =, ", comma, or whitespace
+            pattern = r'(?:,|^)\s*([^=",\s]+?)="([^"]*)"'
+            matches = re.findall(pattern, entry)
+            # Debug: print matches for this entry
+            print(f"[DEBUG] entry: '{entry}', matches: {matches}")
+            for key, value in matches:
+                var_dict[key] = value
+
+            if var_dict:
+                variables.append(var_dict)
+
+        return variables
+
     def get_variables(self) -> List[Dict[str, Any]]:
         """
         Get current variable values.
@@ -408,11 +478,43 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return []
 
+        variables = []
+
         try:
-            # Try with --simple-values first to get types
+            # First get variables with types (--simple-values)
             response = self.send_mi_command_sync("-stack-list-variables --simple-values")
             result_type, content = response
-            if result_type != '^' or not content.startswith('done'):
+            if result_type == '^' and content.startswith('done'):
+                print(f"[DEBUG] get_variables (simple): result_type='{result_type}', content='{content}'")
+                variables_with_types = self._parse_variables_response(content)
+
+                # Then get variables with values (--all-values) for arrays
+                response2 = self.send_mi_command_sync("-stack-list-variables --all-values")
+                result_type2, content2 = response2
+                if result_type2 == '^' and content2.startswith('done'):
+                    print(f"[DEBUG] get_variables (all): result_type='{result_type2}', content='{content2}'")
+                    variables_with_values = self._parse_variables_response(content2)
+
+                    # Merge: start with types, then update with values
+                    # Create a map by name for quick lookup
+                    var_map = {v['name']: v for v in variables_with_types}
+
+                    for var_with_value in variables_with_values:
+                        name = var_with_value.get('name')
+                        if name in var_map:
+                            # Update value if present
+                            if 'value' in var_with_value:
+                                var_map[name]['value'] = var_with_value['value']
+                            # Update any other fields (like addr)
+                            for key in var_with_value:
+                                if key not in ('name', 'value', 'type'):
+                                    var_map[name][key] = var_with_value[key]
+
+                    variables = list(var_map.values())
+                else:
+                    # Fallback to just types
+                    variables = variables_with_types
+            else:
                 return []
         except GDBError:
             return []
