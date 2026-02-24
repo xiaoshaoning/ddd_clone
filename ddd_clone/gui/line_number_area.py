@@ -4,7 +4,7 @@ Line number area for source viewer.
 
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal
-from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QTextCursor, QPen
+from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QTextCursor, QPen, QPainterPath
 
 
 class LineNumberArea(QWidget):
@@ -19,6 +19,9 @@ class LineNumberArea(QWidget):
         super().__init__(source_viewer)
         self.source_viewer = source_viewer
         self.setFont(QFont("Courier New", 18))  # Larger font
+        self.arrow_area_width = 20  # Width for debug arrow area
+        # Connect to current line changes to update arrow
+        self.source_viewer.current_line_changed.connect(self.update)
 
     def set_font(self, font):
         """Set font for line number area and trigger repaint."""
@@ -103,6 +106,27 @@ class LineNumberArea(QWidget):
                 # Calculate block height for vertical alignment
                 block_height = int(block_rect.height())
 
+                # Draw debug arrow for current line
+                if hasattr(self.source_viewer, 'current_line') and line_number == self.source_viewer.current_line:
+                    # Draw dark green right-pointing arrow in left area
+                    arrow_size = min(6, block_height // 3)
+                    arrow_center_x = self.arrow_area_width // 2
+                    arrow_center_y = int(top) + block_height // 2
+
+                    # Create right-pointing triangle
+                    arrow_path = QPainterPath()
+                    arrow_path.moveTo(arrow_center_x - arrow_size, arrow_center_y - arrow_size)  # Left-top
+                    arrow_path.lineTo(arrow_center_x + arrow_size, arrow_center_y)              # Right tip
+                    arrow_path.lineTo(arrow_center_x - arrow_size, arrow_center_y + arrow_size)  # Left-bottom
+                    arrow_path.closeSubpath()
+
+                    # Fill with dark green
+                    painter.save()
+                    painter.setBrush(QBrush(QColor(0, 150, 0)))  # Dark green
+                    painter.setPen(Qt.NoPen)
+                    painter.drawPath(arrow_path)
+                    painter.restore()
+
                 # Draw breakpoint marker if this line has a breakpoint
                 if line_number in self.source_viewer.breakpoint_lines:
                     # Draw transparent red box around line number
@@ -126,7 +150,7 @@ class LineNumberArea(QWidget):
                 # Draw line number
                 number = str(line_number)
                 painter.setPen(Qt.black)
-                rect = QRect(0, int(top), self.width() - 10, block_height)
+                rect = QRect(self.arrow_area_width, int(top), self.width() - 10 - self.arrow_area_width, block_height)
                 painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
             # If block is below the visible area, stop (blocks are sorted)
