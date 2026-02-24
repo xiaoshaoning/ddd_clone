@@ -218,6 +218,11 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self.open_program)
         file_menu.addAction(open_action)
 
+        # Load source file action
+        load_source_action = QAction("Load Source File...", self)
+        load_source_action.triggered.connect(self.load_source_file)
+        file_menu.addAction(load_source_action)
+
         # Exit action
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
@@ -660,6 +665,19 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", "Failed to start GDB with selected program")
 
+    def load_source_file(self):
+        """Load a source file for viewing."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Source File", "", "Source Files (*.c *.cpp *.py *.java *.js);;All Files (*)"
+        )
+        if file_path:
+            try:
+                self.source_viewer.load_source_file(file_path)
+                self.current_file_label.setText(f"Loaded: {file_path}")
+                print(f"Source file loaded: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load source file: {e}")
+
     def set_breakpoint_at_line(self, line_number):
         """Set breakpoint at specific line in current file."""
         if hasattr(self.source_viewer, 'current_file'):
@@ -697,6 +715,12 @@ class MainWindow(QMainWindow):
     def handle_breakpoint_toggle(self, line_number: int):
         """Handle breakpoint toggle from source viewer."""
 
+        # Check if GDB is connected
+        if self.gdb_controller.current_state['state'] == 'disconnected':
+            print("Cannot set breakpoint: GDB is not connected. Please load a program first.")
+            # Could show a warning message to the user
+            return
+
         if hasattr(self.source_viewer, 'current_file') and self.source_viewer.current_file:
             current_file = self.source_viewer.current_file
 
@@ -714,7 +738,9 @@ class MainWindow(QMainWindow):
                     # Only remove visual marker if GDB successfully removed the breakpoint
                     self.source_viewer.remove_breakpoint_marker(line_number)
                 else:
-                    pass  # Failed to remove breakpoint
+                    # Failed to remove breakpoint
+                    print(f"Failed to remove breakpoint at {current_file}:{line_number}")
+                    # Could show a warning message to the user
             else:
                 # Add new breakpoint
                 bp = self.breakpoint_manager.add_breakpoint(current_file, line_number)
@@ -722,9 +748,13 @@ class MainWindow(QMainWindow):
                     # Only add visual marker if GDB successfully set the breakpoint
                     self.source_viewer.add_breakpoint_marker(line_number)
                 else:
-                    pass  # Failed to set breakpoint - no executable code at this location
+                    # Failed to set breakpoint - no executable code at this location
+                    print(f"Failed to set breakpoint at {current_file}:{line_number} - no executable code at this location")
+                    # Could show a warning message to the user
         else:
-            pass  # Cannot set breakpoint: no source file loaded
+            # Cannot set breakpoint: no source file loaded
+            print("Cannot set breakpoint: no source file loaded. Please load a source file first.")
+            # Could show a warning message to the user
 
     def handle_variable_hover(self, variable_name: str):
         """Handle variable hover and query GDB for variable value."""

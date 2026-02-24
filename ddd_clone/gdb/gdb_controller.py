@@ -6,6 +6,7 @@ import subprocess
 import threading
 import queue
 import re
+import time
 from typing import Dict, List, Optional, Any
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -30,6 +31,7 @@ class GDBController(QObject):
             'line': None,
             'function': None
         }
+        self.last_error = None  # Store last error message
 
     def start_gdb(self, program_path: Optional[str] = None) -> bool:
         """
@@ -93,7 +95,17 @@ class GDBController(QObject):
         exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
         exit_match = re.search(exit_pattern, output)
 
-        if exit_match:
+        # Check for error messages (e.g., from breakpoint commands)
+        if output.startswith('^error'):
+            # Extract error message
+            msg_match = re.search(r'msg="([^"]+)"', output)
+            if msg_match:
+                self.last_error = msg_match.group(1)
+                print(f"GDB error: {self.last_error}")
+            else:
+                self.last_error = output
+                print(f"GDB error: {output}")
+        elif exit_match:
             # Program has exited, clear line and file info
             self.current_state['state'] = 'exited'
             self.current_state['line'] = None
@@ -105,6 +117,11 @@ class GDBController(QObject):
         elif 'running' in output:
             self.current_state['state'] = 'running'
             self.state_changed.emit(self.current_state.copy())
+        else:
+            # Reset last_error if no error in this output
+            # (but only if we're not in the middle of an error sequence)
+            if not output.startswith('^error'):
+                self.last_error = None
 
     def _handle_stopped_state(self, output: str):
         """Handle stopped state and extract location information."""
@@ -198,10 +215,20 @@ class GDBController(QObject):
         if condition:
             cmd += f" -c {condition}"
 
+        # Reset last error before sending command
+        self.last_error = None
+
         # Send command and check for success
         if self.send_command(cmd):
-            # The actual success/failure will be reported via output_received signal
-            # For now, we assume it succeeded unless we get an error response
+            # Wait a short time for GDB to respond
+            time.sleep(0.1)
+
+            # Check if an error was reported
+            if self.last_error is not None:
+                print(f"Breakpoint set failed: {self.last_error}")
+                return False
+
+            # No error detected, assume success
             return True
         return False
 
@@ -215,7 +242,22 @@ class GDBController(QObject):
         Returns:
             bool: True if breakpoint was deleted successfully
         """
-        return self.send_command(f"-break-delete {breakpoint_id}")
+        # Reset last error before sending command
+        self.last_error = None
+
+        # Send command and check for success
+        if self.send_command(f"-break-delete {breakpoint_id}"):
+            # Wait a short time for GDB to respond
+            time.sleep(0.1)
+
+            # Check if an error was reported
+            if self.last_error is not None:
+                print(f"Breakpoint delete failed: {self.last_error}")
+                return False
+
+            # No error detected, assume success
+            return True
+        return False
 
     def get_variables(self) -> List[Dict[str, Any]]:
         """
