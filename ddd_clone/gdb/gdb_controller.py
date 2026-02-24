@@ -317,8 +317,6 @@ class GDBController(QObject):
             quoted_expression = f'"{expression}"'
 
         cmd = f"-break-watch {type_flag} {quoted_expression}"
-        # Debug: print command
-        print(f"[DEBUG] set_watchpoint command: '{cmd}'")
         return self.send_command(cmd)
 
     def get_registers(self) -> List[Dict[str, str]]:
