@@ -414,9 +414,10 @@ class MainWindow(QMainWindow):
             else:
                 self.current_file_label.setText("No file loaded")
 
-        # Update registers when program is stopped
+        # Update registers and variables when program is stopped
         if state == 'stopped':
             self._update_registers_tree()
+            self._update_variables_tree()
 
     def handle_gdb_output(self, output: str) -> None:
         """Handle output received from GDB."""
@@ -823,6 +824,18 @@ class MainWindow(QMainWindow):
 
         # Update previous values for next comparison
         self.previous_register_values = current_values
+
+    def _update_variables_tree(self) -> None:
+        """Update the variables tree with current variable values."""
+        self.variables_tree.clear()
+        # Get variables from GDB
+        variables = self.gdb_controller.get_variables()
+
+        for var in variables:
+            item = QTreeWidgetItem(self.variables_tree)
+            item.setText(0, var.get('name', 'N/A'))
+            item.setText(1, var.get('value', 'N/A'))
+            item.setText(2, var.get('type', 'N/A'))
 
     def add_watchpoint_dialog(self) -> None:
         """Show dialog to add a new watchpoint."""
