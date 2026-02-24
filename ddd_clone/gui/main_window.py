@@ -502,41 +502,43 @@ class MainWindow(QMainWindow):
                 cleaned = cleaned[1:-1]
             cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
 
-        # Now check if this cleaned output should be displayed
-        # Only show: variable print output and error messages
-
-        # Check for variable print pattern: $number = value
-        variable_pattern = r'^\$\d+\s*='
-        # Check for error pattern
-        error_pattern = r'(?i)error|failed|cannot|unable|invalid|unknown|not found'
-
-        is_variable_output = re.search(variable_pattern, cleaned) is not None
-        is_error_output = re.search(error_pattern, cleaned) is not None
-
-        # Also check if it's a result of a print command (might not have $ prefix)
-        # Some print outputs might be just the value without $ prefix
-        # We'll track user commands to know what to show, but for now use simpler approach
-
         # Remove ANSI escape codes
         cleaned = self._remove_ansi_escape_codes(cleaned)
 
-        # Only return if it's variable output or error
-        if is_variable_output or is_error_output:
-            # Clean up quotes around source code lines if present
-            cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
-            # Remove $number = prefix for variable output
-            if is_variable_output:
-                cleaned = re.sub(r'^\$\d+\s*=\s*', '', cleaned)
-                # Strip whitespace (including newlines) from start and end
-                cleaned = cleaned.strip()
-                # Remove quotes around the value if present
-                if cleaned.startswith('"') and cleaned.endswith('"'):
-                    cleaned = cleaned[1:-1]
-                elif cleaned.startswith("'") and cleaned.endswith("'"):
-                    cleaned = cleaned[1:-1]
-            return cleaned
-        else:
+        # Check if this should be displayed (not filtered as noise)
+        if self._should_filter_output(cleaned):
             return ""
+
+        # Clean up quotes around source code lines if present
+        cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
+
+        # Process variable output (keep $number = prefix, remove quotes from value)
+        variable_pattern = r'^\$\d+\s*='
+        if re.search(variable_pattern, cleaned) is not None:
+            # Strip whitespace (including newlines) from start and end
+            cleaned = cleaned.strip()
+            # Remove quotes from value part only (e.g., $1 = "value" -> $1 = value)
+            # Match pattern: $number = "value" or $number = 'value'
+            match = re.match(r'^(\$\d+\s*=\s*)([\'"]?)(.*?)\2$', cleaned)
+            if match:
+                # Reconstruct without quotes around value
+                cleaned = match.group(1) + match.group(3)
+            # Also handle cases where quotes might be around the whole output
+            elif cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1]
+            elif cleaned.startswith("'") and cleaned.endswith("'"):
+                cleaned = cleaned[1:-1]
+
+        # For other outputs, just strip whitespace
+        else:
+            cleaned = cleaned.strip()
+            # Remove surrounding quotes if present
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1]
+            elif cleaned.startswith("'") and cleaned.endswith("'"):
+                cleaned = cleaned[1:-1]
+
+        return cleaned
 
     def _should_filter_output(self, output: str) -> bool:
         """Check if output should be filtered out as noise."""
@@ -594,6 +596,26 @@ class MainWindow(QMainWindow):
 
         # Also filter lines that are just punctuation or very short noise
         if re.match(r'^[\s\"\'\\]*$', output):
+            return True
+
+        # Filter GDB command echo (e.g., "p sum", "print fib_result")
+        if re.match(r'^(p|print|break|watch|display|info|run|continue|next|step|finish|kill|quit)\s+', output, re.IGNORECASE):
+            return True
+
+        # Filter lines that contain command prompts but no actual output
+        if re.match(r'^\(\w+\)\s*$', output):
+            return True
+
+        # Filter GDB help and info lines that may be split across multiple lines
+        if re.match(r'^Type\s*".*', output, re.IGNORECASE):
+            return True
+        if re.match(r'^show\s+\w+.*', output, re.IGNORECASE):
+            return True
+        if re.match(r'.*for details.*', output, re.IGNORECASE):
+            return True
+        if re.match(r'.*for configuration details.*', output, re.IGNORECASE):
+            return True
+        if re.match(r'.*to search for commands.*', output, re.IGNORECASE):
             return True
 
         return False
