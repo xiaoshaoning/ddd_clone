@@ -93,8 +93,8 @@ class LineNumberArea(QWidget):
             bottom = top + block_rect.height()
 
             # Debug: print block information (only first few)
-            if block_number < 3:
-                print(f"Block {block_number}: top={top}, bottom={bottom}, height={block_rect.height()}")
+            # if block_number < 3:
+            #     print(f"Block {block_number}: top={top}, bottom={bottom}, height={block_rect.height()}")
 
             # Check if block is visible in line number area
             if block.isVisible() and top <= event.rect().bottom() and bottom >= event.rect().top():

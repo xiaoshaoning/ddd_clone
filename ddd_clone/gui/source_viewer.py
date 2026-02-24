@@ -602,8 +602,8 @@ class SourceViewer(QTextEdit):
     def scrollContentsBy(self, dx, dy):
         """Override scrollContentsBy to update line number area."""
         # Debug: only print if significant scroll
-        if abs(dy) > 10:
-            print(f"scrollContentsBy: dy={dy}")
+        # if abs(dy) > 10:
+        #     print(f"scrollContentsBy: dy={dy}")
         super().scrollContentsBy(dx, dy)
 
         # Update line number area with the scrolled amount
