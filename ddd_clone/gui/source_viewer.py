@@ -255,8 +255,14 @@ class SourceViewer(QTextEdit):
         # Store the highlight
         self.highlighted_lines[line_number] = highlight_format
 
-        # Scroll to the highlighted line
-        self.ensureCursorVisible()
+        # Move cursor to the line and scroll to make it visible
+        scroll_cursor = QTextCursor(self.document())
+        scroll_cursor.movePosition(QTextCursor.Start)
+        for _ in range(line_number - 1):
+            scroll_cursor.movePosition(QTextCursor.Down)
+        scroll_cursor.movePosition(QTextCursor.StartOfLine)
+        self.setTextCursor(scroll_cursor)
+        self.centerCursor()
 
         # Emit signal
         self.current_line_changed.emit(line_number)
