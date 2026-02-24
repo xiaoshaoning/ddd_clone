@@ -409,7 +409,8 @@ class GDBController(QObject):
             return []
 
         try:
-            response = self.send_mi_command_sync("-stack-list-variables --all-values")
+            # Try with --simple-values first to get types
+            response = self.send_mi_command_sync("-stack-list-variables --simple-values")
             result_type, content = response
             if result_type != '^' or not content.startswith('done'):
                 return []
@@ -449,8 +450,9 @@ class GDBController(QObject):
             # Parse key-value pairs
             var_dict = {}
             # Split by comma, but respect quoted strings
-            # Simple approach: find all key="value" patterns
-            pattern = r'(\w+)="([^"]*)"'
+            # Match any key that doesn't contain equals or quotes, followed by ="value"
+            # This handles keys like "type", "value", "name", "addr", etc.
+            pattern = r'([^="\s]+?)="([^"]*)"'
             for key, value in re.findall(pattern, entry):
                 var_dict[key] = value
 
