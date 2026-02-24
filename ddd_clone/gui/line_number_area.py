@@ -4,7 +4,7 @@ Line number area for source viewer.
 
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal
-from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QTextCursor
+from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QTextCursor, QPen
 
 
 class LineNumberArea(QWidget):
@@ -107,13 +107,14 @@ class LineNumberArea(QWidget):
                 if line_number in self.source_viewer.breakpoint_lines:
                     # Draw transparent red box around line number
                     # Calculate text width for proper box sizing
-                    text_width = painter.fontMetrics().horizontalAdvance(number)
+                    number_text = str(line_number)
+                    text_width = painter.fontMetrics().horizontalAdvance(number_text)
                     # Box dimensions with padding
                     box_padding = 4
                     box_width = text_width + box_padding * 2
                     box_height = block_height - 2  # Slightly smaller than line height
                     # Position box to align with right-aligned line numbers
-                    box_right = self.width() - 5  # Same right edge as line numbers
+                    box_right = self.width() - 10  # Same right edge as line numbers
                     box_left = box_right - box_width
                     box_top = int(top) + 1
 
@@ -125,7 +126,7 @@ class LineNumberArea(QWidget):
                 # Draw line number
                 number = str(line_number)
                 painter.setPen(Qt.black)
-                rect = QRect(0, int(top), self.width() - 5, block_height)
+                rect = QRect(0, int(top), self.width() - 10, block_height)
                 painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, number)
 
             # If block is below the visible area, stop (blocks are sorted)
@@ -137,6 +138,11 @@ class LineNumberArea(QWidget):
             if not block.isValid():
                 break
             block_number += 1
+
+        # Draw vertical separator line between line numbers and code
+        painter.setPen(QPen(QColor(180, 180, 180), 1))  # Light gray, 1px wide solid line
+        line_x = self.width() - 1  # Right edge of line number area
+        painter.drawLine(line_x, 0, line_x, self.height())
 
     def changeEvent(self, event):
         """Handle change events, including font changes."""

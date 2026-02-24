@@ -641,7 +641,7 @@ class SourceViewer(QTextEdit):
         while max_num >= 10:
             max_num /= 10
             digits += 1
-        space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
+        space = 20 + self.fontMetrics().horizontalAdvance('9') * digits
         return space
 
     def update_line_number_area_width(self, _):
