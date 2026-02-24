@@ -833,9 +833,29 @@ class MainWindow(QMainWindow):
 
         for var in variables:
             item = QTreeWidgetItem(self.variables_tree)
-            item.setText(0, var.get('name', 'N/A'))
-            item.setText(1, var.get('value', 'N/A'))
-            item.setText(2, var.get('type', 'N/A'))
+            name = var.get('name', 'N/A')
+            value = var.get('value', '')
+            var_type = var.get('type', 'N/A')
+
+            item.setText(0, name)
+
+            # Handle empty values (e.g., arrays, structures)
+            if not value:
+                # Check if it's an array type
+                if '[' in var_type or 'array' in var_type.lower():
+                    # For arrays, show type and address if available
+                    addr = var.get('addr', '')
+                    if addr:
+                        item.setText(1, f"array @ {addr}")
+                    else:
+                        item.setText(1, f"array ({var_type})")
+                else:
+                    # For other types with no value, show type
+                    item.setText(1, var_type)
+            else:
+                item.setText(1, value)
+
+            item.setText(2, var_type)
 
     def add_watchpoint_dialog(self) -> None:
         """Show dialog to add a new watchpoint."""

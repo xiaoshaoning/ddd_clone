@@ -409,7 +409,7 @@ class GDBController(QObject):
             return []
 
         try:
-            response = self.send_mi_command_sync("-stack-list-variables --simple-values")
+            response = self.send_mi_command_sync("-stack-list-variables --all-values")
             result_type, content = response
             if result_type != '^' or not content.startswith('done'):
                 return []
@@ -420,6 +420,10 @@ class GDBController(QObject):
         # Format: ^done,variables=[{name="var1",value="1",type="int",...},...]
         # Simple parsing: find variables array
         import re
+
+        # Debug: print first 500 chars of response to see array values
+        print(f"[DEBUG] get_variables response (first 500): {content[:500]}")
+
         # Find variables array pattern
         match = re.search(r'variables=\[([^\]]*)\]', content)
         if not match:
