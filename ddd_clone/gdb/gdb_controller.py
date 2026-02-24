@@ -426,7 +426,10 @@ class GDBController(QObject):
         print(f"[DEBUG] get_variables full response: result_type='{result_type}', content='{content}'")
 
         # Find variables array pattern
-        match = re.search(r'variables=\[([^\]]*)\]', content)
+        # Need to handle types with brackets like "int [5]" which contain ']'
+        # Match everything between the first '[' and the last ']'
+        # The pattern (.*) is greedy and will match up to the last ']'
+        match = re.search(r'variables=\[(.*)\]', content)
         if not match:
             return []
 
