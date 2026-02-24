@@ -108,23 +108,22 @@ class LineNumberArea(QWidget):
 
                 # Draw debug arrow for current line
                 if hasattr(self.source_viewer, 'current_line') and line_number == self.source_viewer.current_line:
-                    # Draw dark green right-pointing arrow in left area
-                    arrow_size = min(6, block_height // 3)
-                    arrow_center_x = self.arrow_area_width // 2
-                    arrow_center_y = int(top) + block_height // 2
+                    # Draw dark green Unicode arrow (U+2794) in leftmost area
+                    arrow_char = "\u2794"  # HEAVY ROUND-TIPPED RIGHTWARDS ARROW
 
-                    # Create right-pointing triangle
-                    arrow_path = QPainterPath()
-                    arrow_path.moveTo(arrow_center_x - arrow_size, arrow_center_y - arrow_size)  # Left-top
-                    arrow_path.lineTo(arrow_center_x + arrow_size, arrow_center_y)              # Right tip
-                    arrow_path.lineTo(arrow_center_x - arrow_size, arrow_center_y + arrow_size)  # Left-bottom
-                    arrow_path.closeSubpath()
+                    # Create a smaller font for the arrow
+                    arrow_font = QFont(self.font())
+                    arrow_font_size = max(8, block_height // 2)  # Adjust size based on line height
+                    arrow_font.setPointSize(arrow_font_size)
 
-                    # Fill with dark green
+                    # Calculate position for centered arrow
+                    arrow_rect = QRect(0, int(top), self.arrow_area_width, block_height)
+
+                    # Draw arrow character
                     painter.save()
-                    painter.setBrush(QBrush(QColor(0, 150, 0)))  # Dark green
-                    painter.setPen(Qt.NoPen)
-                    painter.drawPath(arrow_path)
+                    painter.setFont(arrow_font)
+                    painter.setPen(QColor(0, 150, 0))  # Dark green
+                    painter.drawText(arrow_rect, Qt.AlignCenter, arrow_char)
                     painter.restore()
 
                 # Draw breakpoint marker if this line has a breakpoint
