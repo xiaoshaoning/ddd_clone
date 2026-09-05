@@ -121,6 +121,14 @@ class TestGDBController(unittest.TestCase):
         self.assertTrue(result)
         self.controller.send_command.assert_called_with("-break-insert test.c:20 -c i > 5")
 
+    def test_set_breakpoint_uses_basename(self):
+        """GDB should receive the source basename, not the current full path."""
+        self.controller.send_command = Mock(return_value=True)
+
+        result = self.controller.set_breakpoint("D:/Projects/codes/x/simple_program.c", 22)
+        self.assertTrue(result)
+        self.controller.send_command.assert_called_with("-break-insert simple_program.c:22")
+
     def test_delete_breakpoint(self):
         """Test deleting breakpoints."""
         self.controller.send_command = Mock(return_value=True)

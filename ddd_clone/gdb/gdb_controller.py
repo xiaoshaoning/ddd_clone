@@ -2,6 +2,7 @@
 GDB controller for managing GDB process and communication.
 """
 
+import os
 import subprocess
 import threading
 import queue
@@ -253,7 +254,11 @@ class GDBController(QObject):
         Returns:
             bool: True if breakpoint was set successfully
         """
-        cmd = f"-break-insert {file}:{line}"
+        # GDB matches source files by the name recorded in the debug info,
+        # which may differ from the current absolute path if the project was
+        # built/moved elsewhere. Use the basename so GDB resolves it against
+        # its own source catalog instead of erroring on a stale full path.
+        cmd = f"-break-insert {os.path.basename(file)}:{line}"
         if condition:
             cmd += f" -c {condition}"
 
