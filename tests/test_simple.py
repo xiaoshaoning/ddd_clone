@@ -16,7 +16,7 @@ from ddd_clone.gdb.gdb_controller import GDBController
 
 def test_gui_setup():
     """Test GUI setup without running event loop."""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
 
     # Initialize GDB controller
     gdb_controller = GDBController()
@@ -40,23 +40,21 @@ def test_gui_setup():
         print(f"[ERROR] Test file not found: {test_file}")
 
     # Test GDB startup
-    if gdb_controller.start_gdb("../examples/simple_program"):
+    exe_path = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program')
+    if gdb_controller.start_gdb(exe_path):
         print("[OK] GDB started successfully")
     else:
         print("[ERROR] Failed to start GDB")
+
+    # Stop GDB so the reader thread does not leak into later tests
+    gdb_controller.shutdown()
 
     print("\n[OK] GUI setup test completed successfully")
     print("The main window should now display source code")
 
     # Show the window briefly
     window.show()
-
-    # Process events briefly to show the window
     app.processEvents()
-
-    # Keep the window open for a moment
-    import time
-    time.sleep(2)
 
 
 if __name__ == "__main__":

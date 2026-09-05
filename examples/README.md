@@ -39,11 +39,9 @@ gcc -g -o simple_program simple_program.c
 - **Step Operations**: Step into recursive functions
 - **Variable Inspection**: Watch local variables change
 - **Call Stack**: Navigate through recursive function calls
-- **Memory View**: Examine array memory layout
 
 ## Debugging Tips
 
 1. **Use conditional breakpoints**: Set breakpoints that only trigger when specific conditions are met
 2. **Watch expressions**: Add expressions like `i > 2` to monitor specific conditions
-3. **Memory analysis**: Use the memory viewer to examine array contents and pointer values
-4. **Call stack navigation**: Use the call stack to understand the flow of recursive functions
+3. **Call stack navigation**: Use the call stack to understand the flow of recursive functions

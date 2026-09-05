@@ -3,7 +3,6 @@ Main entry point for the DDD Clone application.
 """
 
 import sys
-import os
 from PyQt5.QtWidgets import QApplication
 
 from ddd_clone.gui.main_window import MainWindow

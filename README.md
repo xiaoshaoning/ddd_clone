@@ -8,7 +8,6 @@ A Python-based graphical debugger frontend for the GNU Debugger (GDB), inspired 
 - **Breakpoint Management**: Set, remove, and manage breakpoints with conditions
 - **Variable Inspection**: View and inspect local and global variables
 - **Watch Expressions**: Monitor specific expressions during execution
-- **Memory Visualization**: View and analyze memory contents with hex dump and disassembly
 - **Execution Control**: Run, pause, step over, step into, step out, and continue execution
 - **Call Stack**: View and navigate the call stack
 - **GDB Integration**: Seamless integration with GDB using MI (Machine Interface)
@@ -87,13 +86,6 @@ main()
 - Add watch expressions in the "Watch" tab to monitor specific values
 - Expand complex variables (structs, arrays) to view their members
 
-### Memory Analysis
-
-- Use the memory viewer to examine memory contents
-- Generate hex dumps of memory regions
-- Disassemble code at specific addresses
-- Search for patterns in memory
-
 ## Architecture
 
 ### Core Components
@@ -103,7 +95,6 @@ main()
 - **Source Viewer**: Displays source code with syntax highlighting
 - **Breakpoint Manager**: Handles breakpoint operations
 - **Variable Inspector**: Manages variable inspection and watch expressions
-- **Memory Viewer**: Provides memory analysis capabilities
 
 ### File Structure
 
@@ -122,7 +113,6 @@ ddd/
 │   │   ├── source_viewer.py
 │   │   ├── breakpoint_manager.py
 │   │   ├── variable_inspector.py
-│   │   └── memory_viewer.py
 │   │   └── line_number_area.py
 │   └── gdb/                          # GDB integration
 │       ├── __init__.py

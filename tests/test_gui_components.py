@@ -5,14 +5,14 @@ Tests watchpoint dialog and register tree updates.
 
 import sys
 import os
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # PyQt5 imports
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 
 # Import the modules to test
 from ddd_clone.gui.main_window import MainWindow
@@ -29,18 +29,12 @@ def test_watchpoint_dialog(qtbot):
     window = MainWindow(mock_gdb)
     qtbot.addWidget(window)
 
-    # Test that dialog can be created
-    window.add_watchpoint_dialog()
+    # Test that the dialog can be created without blocking (no exec_)
+    dialog = window._create_watchpoint_dialog()
+    qtbot.addWidget(dialog)
 
-    # Find dialog in application
-    app = QApplication.instance()
-    dialogs = [w for w in app.topLevelWidgets() if w.windowTitle() == "Add Watchpoint"]
-
-    assert len(dialogs) == 1
-    dialog = dialogs[0]
-
-    # Test dialog widgets exist
     assert dialog is not None
+    assert dialog.windowTitle() == "Add Watchpoint"
 
     # Clean up
     dialog.close()
@@ -103,7 +97,7 @@ def test_watchpoint_context_menu(qtbot):
     # but we can verify the method exists and doesn't crash
     try:
         # Call the context menu handler with a dummy position
-        window._show_watchpoints_context_menu((0, 0))
+        window._show_watchpoints_context_menu(QPoint(0, 0))
         # If we get here, method executed without error
         assert True
     except Exception:
@@ -123,7 +117,7 @@ def test_register_context_menu(qtbot):
     # Trigger context menu request
     try:
         # Call the context menu handler with a dummy position
-        window._show_registers_context_menu((0, 0))
+        window._show_registers_context_menu(QPoint(0, 0))
         # If we get here, method executed without error
         assert True
     except Exception:
@@ -145,16 +139,20 @@ def test_breakpoint_persistence(qtbot):
     mock_bp_manager.save_breakpoints_to_file = Mock(return_value=True)
     mock_bp_manager.load_breakpoints_from_file = Mock(return_value=True)
 
-    # Test save method exists
+    # Test save method exists (patch file dialog so it does not block)
     try:
-        window.save_breakpoints()
+        with patch('ddd_clone.gui.main_window.QFileDialog.getSaveFileName',
+                   return_value=('bp.json', 'JSON Files (*.json)')):
+            window.save_breakpoints()
         assert True
     except Exception:
         assert False, "save_breakpoints method raised exception"
 
-    # Test load method exists
+    # Test load method exists (patch file dialog so it does not block)
     try:
-        window.load_breakpoints()
+        with patch('ddd_clone.gui.main_window.QFileDialog.getOpenFileName',
+                   return_value=('bp.json', 'JSON Files (*.json)')):
+            window.load_breakpoints()
         assert True
     except Exception:
         assert False, "load_breakpoints method raised exception"

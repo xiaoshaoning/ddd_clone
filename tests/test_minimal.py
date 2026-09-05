@@ -16,7 +16,7 @@ from ddd_clone.gdb.gdb_controller import GDBController
 
 def test_minimal():
     """Minimal GUI test."""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
 
     # Initialize GDB controller
     gdb_controller = GDBController()

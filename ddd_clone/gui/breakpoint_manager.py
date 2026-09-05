@@ -2,7 +2,7 @@
 Breakpoint and watchpoint manager for handling breakpoints and watchpoints in the debugger.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 from PyQt5.QtCore import QObject, pyqtSignal
 
 
@@ -331,7 +331,7 @@ class BreakpointManager(QObject):
                 self.watchpoint_added.emit(wp)
 
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     def save_breakpoints_to_file(self, file_path: str) -> bool:
@@ -346,7 +346,6 @@ class BreakpointManager(QObject):
         """
         try:
             import json
-            import os
 
             # Prepare data structure
             data = {
@@ -359,7 +358,7 @@ class BreakpointManager(QObject):
                 json.dump(data, f, indent=2)
 
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     # Watchpoint management methods

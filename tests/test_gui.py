@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Simple test script to verify GUI functionality.
+Simple pytest smoke test for GUI functionality.
+
+As a pytest test this sets up the window without blocking. Running it as a
+script (python tests/test_gui.py) additionally enters the Qt event loop.
 """
 
 import sys
@@ -16,7 +19,7 @@ from ddd_clone.gdb.gdb_controller import GDBController
 
 def test_gui():
     """Test the GUI functionality."""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
 
     # Initialize GDB controller
     gdb_controller = GDBController()
@@ -26,7 +29,7 @@ def test_gui():
     window.show()
 
     # Test loading source code
-    test_file = "../examples/simple_program.c"
+    test_file = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
     if os.path.exists(test_file):
         window.source_viewer.load_source_file(test_file)
         print(f"Loaded source file: {test_file}")
@@ -36,9 +39,8 @@ def test_gui():
     print("GUI test completed successfully")
     print("Window should be visible with source code")
 
-    # Start the application
-    sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     test_gui()
+    app = QApplication.instance() or QApplication(sys.argv)
+    sys.exit(app.exec_())

@@ -103,79 +103,6 @@ def test_source_viewer_load(qtbot):
         # Skip the assertion if file doesn't exist
 
 
-def test_memory_viewer_basics(qtbot):
-    """Test basic MemoryViewer functionality."""
-    from ddd_clone.gui.memory_viewer import MemoryViewer, MemoryRegion
-    from ddd_clone.gdb.gdb_controller import GDBController
-
-    # Mock GDB controller
-    mock_gdb = Mock(spec=GDBController)
-
-    # Create memory viewer
-    viewer = MemoryViewer(mock_gdb)
-
-    # Test memory region creation
-    test_data = bytes([i for i in range(16)])
-    region = MemoryRegion(address=0x1000, size=16, data=test_data, permissions="rwx")
-
-    assert region.address == 0x1000
-    assert region.size == 16
-    assert region.data == test_data
-    assert region.permissions == "rwx"
-
-    # Test byte access
-    assert region.get_byte(0) == 0
-    assert region.get_byte(10) == 10
-    assert region.get_byte(20) is None  # Out of bounds
-
-    # Test word access
-    word = region.get_word(0, 4)
-    assert word == 0x03020100  # Little endian: [0, 1, 2, 3] -> 0x03020100
-
-
-def test_memory_viewer_read_write(qtbot):
-    """Test MemoryViewer read/write operations."""
-    from ddd_clone.gui.memory_viewer import MemoryViewer
-    from ddd_clone.gdb.gdb_controller import GDBController
-
-    # Mock GDB controller
-    mock_gdb = Mock(spec=GDBController)
-
-    # Create memory viewer
-    viewer = MemoryViewer(mock_gdb)
-
-    # Track signals
-    update_signals = []
-    error_signals = []
-
-    viewer.memory_updated.connect(lambda region: update_signals.append(region))
-    viewer.memory_error.connect(lambda msg: error_signals.append(msg))
-
-    # Test reading memory
-    region = viewer.read_memory(address=0x1000, size=32)
-    assert region is not None
-    assert region.address == 0x1000
-    assert region.size == 32
-    assert len(region.data) == 32
-
-    # Verify signal was emitted
-    assert len(update_signals) == 1
-    assert update_signals[0] == region
-
-    # Test writing memory to current region
-    write_data = bytes([0xFF, 0xEE, 0xDD])
-    result = viewer.write_memory(address=0x1005, data=write_data)
-    assert result is True
-
-    # Verify region was updated
-    assert len(update_signals) == 2
-    assert viewer.current_region.data[5] == 0xFF  # Offset 5 from 0x1000
-
-    # Test writing to address outside current region
-    result = viewer.write_memory(address=0x2000, data=write_data)
-    assert result is False
-
-
 def test_line_number_area_basics(qtbot):
     """Test LineNumberArea basic functionality."""
     from ddd_clone.gui.line_number_area import LineNumberArea
@@ -392,13 +319,12 @@ def test_demo_complete_app(qtbot):
         print(f"[OK] Line numbers displayed: {line_count} lines")
 
         # Test breakpoint setting (equivalent to test_complete.py lines 38-40)
-        # Note: In the actual demo, this would be window.source_viewer.toggle_breakpoint(5)
-        # But we need to test the GUI interaction properly
-        window.source_viewer.toggle_breakpoint(5)
+        # Line 8 is the first code line (line 5 is blank)
+        window.source_viewer.toggle_breakpoint(8)
 
         # Check if breakpoint was added
-        assert 5 in window.source_viewer.breakpoint_lines
-        print("[OK] Breakpoint set at line 5")
+        assert 8 in window.source_viewer.breakpoint_lines
+        print("[OK] Breakpoint set at line 8")
 
         # Test GDB startup (equivalent to test_complete.py lines 42-50)
         # We mock the GDB startup
@@ -454,10 +380,10 @@ def test_breakpoint_mouse_click(qtbot):
     # Get the source viewer
     viewer = window.source_viewer
 
-    # Get position for line 5
-    # First, get cursor for line 5
+    # Get position for line 8
+    # First, get cursor for line 8
     cursor = viewer.cursorForPosition(QPoint(0, 0))
-    for i in range(4):  # Move to line 5 (0-based line 4)
+    for i in range(7):  # Move to line 8 (0-based block 7)
         cursor.movePosition(cursor.Down)
     rect = viewer.cursorRect(cursor)
 
@@ -467,7 +393,7 @@ def test_breakpoint_mouse_click(qtbot):
     click_pos = QPoint(click_x, click_y)
 
     print(f"Clicking at position: ({click_x}, {click_y}) relative to viewer")
-    print(f"Line 5 cursor rect: {rect}")
+    print(f"Line 8 cursor rect: {rect}")
 
     # Simulate mouse click
     qtbot.mouseClick(viewer, Qt.LeftButton, pos=click_pos)
@@ -496,7 +422,7 @@ def test_breakpoint_mouse_click(qtbot):
     qtbot.wait(50)
 
     # Check if breakpoint visual marker was added
-    assert 5 in viewer.breakpoint_lines, f"Breakpoint not added. Current breakpoint lines: {viewer.breakpoint_lines}"
+    assert 8 in viewer.breakpoint_lines, f"Breakpoint not added. Current breakpoint lines: {viewer.breakpoint_lines}"
 
     # Check if GDB was called to set breakpoint
     assert mock_gdb.set_breakpoint.called, "GDB set_breakpoint was not called"
@@ -504,9 +430,9 @@ def test_breakpoint_mouse_click(qtbot):
     # Verify the call arguments
     call_args = mock_gdb.set_breakpoint.call_args
     assert call_args[0][0] == test_file, f"File argument mismatch: {call_args[0][0]}"
-    assert call_args[0][1] == 5, f"Line argument mismatch: {call_args[0][1]}"
+    assert call_args[0][1] == 8, f"Line argument mismatch: {call_args[0][1]}"
 
-    print(f"[OK] Breakpoint successfully set via mouse click at line 5")
+    print(f"[OK] Breakpoint successfully set via mouse click at line 8")
     print(f"[OK] GDB set_breakpoint called with: {call_args}")
 
 

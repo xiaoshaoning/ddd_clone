@@ -14,10 +14,7 @@ from .exceptions import (
     GDBError,
     GDBConnectionError,
     GDBCommandError,
-    GDBParseError,
-    MemoryAccessError,
     GDBTimeoutError,
-    GDBProcessError,
 )
 
 
@@ -80,8 +77,6 @@ class GDBController(QObject):
             return True
 
         except Exception as e:
-            # Wrap in GDBConnectionError for more specific error handling
-            gdb_error = GDBConnectionError(f"Failed to start GDB: {e}")
             self.output_received.emit(f"Failed to start GDB: {e}")
             return False
 
@@ -93,8 +88,11 @@ class GDBController(QObject):
                 if line:
                     self.output_queue.put(line)
                     self._process_output(line)
-            except (OSError, UnicodeDecodeError) as e:
-                self.output_received.emit(f"Error reading GDB output: {e}")
+            except (OSError, UnicodeDecodeError, TypeError, ValueError, RuntimeError) as e:
+                try:
+                    self.output_received.emit(f"Error reading GDB output: {e}")
+                except RuntimeError:
+                    pass  # Controller is being torn down; just stop the thread
                 break
 
     def _parse_mi_output(self, output: str) -> Optional[Tuple[Union[int, str], Optional[str], Optional[str]]]:
@@ -118,7 +116,6 @@ class GDBController(QObject):
 
         # Check for tokenized response: token^result, token*async, etc.
         # Token is a number
-        import re
         match = re.match(r'^(\d+)([\^*=+])(.*)$', output)
         if match:
             token = int(match.group(1))
@@ -148,7 +145,6 @@ class GDBController(QObject):
         else:
             # Not a tokenized MI response, process for state changes
             # Check for exited first, as exited messages may also contain 'stopped'
-            import re
             # Check for various forms of exit messages
             exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
             exit_match = re.search(exit_pattern, output)
@@ -168,7 +164,6 @@ class GDBController(QObject):
 
     def _handle_stopped_state(self, output: str) -> None:
         """Handle stopped state and extract location information."""
-        import re
         # Check if this is actually an exit message
         exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
         exit_match = re.search(exit_pattern, output)
@@ -341,7 +336,6 @@ class GDBController(QObject):
 
         # Parse register names from response
         # Format: ^done,register-names=["eax","ebx",...]
-        import re
         match = re.search(r'register-names=\[([^\]]*)\]', content)
         if not match:
             return []
@@ -379,7 +373,6 @@ class GDBController(QObject):
 
         # Parse register values from response
         # Format: ^done,register-values=[{number="0",value="0x0"},...]
-        import re
         match = re.search(r'register-values=\[([^\]]*)\]', content)
         if not match:
             return []
@@ -408,7 +401,6 @@ class GDBController(QObject):
         Returns:
             List of variable dictionaries
         """
-        import re
 
         # Find variables array pattern
         # Need to handle types with brackets like "int [5]" which contain ']'
@@ -536,7 +528,6 @@ class GDBController(QObject):
 
         # Parse stack frames from MI response
         # Format: ^done,stack=[frame={level="0",addr="0x...",func="...",file="...",line="..."},...]
-        import re
         # Find stack array pattern
         match = re.search(r'stack=\[([^\]]*)\]', content)
         if not match:
@@ -583,7 +574,6 @@ class GDBController(QObject):
             return None
 
         # Parse value from response: ^done,value="..."
-        import re
         match = re.search(r'value="([^"]*)"', content)
         if not match:
             return None
@@ -614,7 +604,6 @@ class GDBController(QObject):
 
         # Parse memory data from response
         # Format: ^done,memory=[{addr="0x...",data=["0x00","0x01",...]},...]
-        import re
         match = re.search(r'data=\[([^\]]*)\]', content)
         if not match:
             return None
@@ -634,7 +623,7 @@ class GDBController(QObject):
         return bytes(bytes_list)
 
     def shutdown(self) -> None:
-        """Shutdown GDB process."""
+        """Shutdown GDB process and stop the reader thread."""
         if self.gdb_process:
             try:
                 self.send_command("-gdb-exit")
@@ -646,6 +635,10 @@ class GDBController(QObject):
                 self.gdb_process.kill()
             finally:
                 self.gdb_process = None
+
+        # Join the reader thread so it cannot emit signals after teardown
+        if self.read_thread and self.read_thread.is_alive():
+            self.read_thread.join(timeout=2)
 
         self.current_state['state'] = 'disconnected'
         self.state_changed.emit(self.current_state.copy())

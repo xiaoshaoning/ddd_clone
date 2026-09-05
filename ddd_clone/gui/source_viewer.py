@@ -2,7 +2,7 @@
 Source code viewer with syntax highlighting.
 """
 
-from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip
+from PyQt5.QtWidgets import QTextEdit, QToolTip
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QPoint, QRectF
 from PyQt5.QtGui import QFont, QTextCursor, QColor, QTextCharFormat, QMouseEvent
 
@@ -232,9 +232,6 @@ class SourceViewer(QTextEdit):
 
             # Highlight code
             highlighted_code = highlight(source_code, lexer, formatter)
-
-            # Debug: print first 500 chars of HTML to verify highlighting
-            # print(f"Generated HTML (first 500 chars): {highlighted_code[:500]}")
 
             # Set HTML content
             self.setHtml(highlighted_code)
@@ -663,8 +660,7 @@ class SourceViewer(QTextEdit):
     def clear_all_breakpoints(self):
         """Clear all breakpoints."""
         for line_number in list(self.breakpoint_lines):
-            self._clear_breakpoint_marker(line_number)
-        self.breakpoint_lines.clear()
+            self.remove_breakpoint_marker(line_number)
 
     def update_variable_value(self, variable_name: str, value: str):
         """Update the stored value for a variable."""
@@ -748,8 +744,6 @@ class SourceViewer(QTextEdit):
 
     def update_line_number_area(self, rect, dy):
         """Update the line number area."""
-        # Debug: print update info
-        # print(f"update_line_number_area: dy={dy}")
         # Always trigger a full repaint of the line number area
         # The scroll() method doesn't work well with custom painted content
         self.line_number_area.update()
@@ -759,8 +753,6 @@ class SourceViewer(QTextEdit):
 
     def _handle_scroll_for_line_numbers(self):
         """Handle scroll bar value change to update line number area."""
-        # Debug: print scroll value
-        # print(f"scroll value={self.verticalScrollBar().value()}")
         # Call update_line_number_area with dy=0 (full repaint)
         self.update_line_number_area(self.viewport().rect(), 0)
 
@@ -775,9 +767,6 @@ class SourceViewer(QTextEdit):
 
     def scrollContentsBy(self, dx, dy):
         """Override scrollContentsBy to update line number area."""
-        # Debug: only print if significant scroll
-        # if abs(dy) > 10:
-        #     print(f"scrollContentsBy: dy={dy}")
         super().scrollContentsBy(dx, dy)
 
         # Update line number area with the scrolled amount

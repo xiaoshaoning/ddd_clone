@@ -3,8 +3,8 @@ Line number area for source viewer.
 """
 
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal
-from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QTextCursor, QPen, QPainterPath
+from PyQt5.QtCore import Qt, QRect, pyqtSignal
+from PyQt5.QtGui import QPainter, QFont, QColor, QBrush, QMouseEvent, QPen
 
 
 class LineNumberArea(QWidget):
@@ -71,9 +71,6 @@ class LineNumberArea(QWidget):
 
     def paintEvent(self, event):
         """Paint the line numbers and breakpoint markers."""
-        # Debug: print paint event information
-        # print(f"LineNumberArea paintEvent: event.rect={event.rect()}, self.rect={self.rect()}")
-
         painter = QPainter(self)
         # Explicitly set the painter font to ensure it uses our font
         painter.setFont(self.font())
@@ -94,10 +91,6 @@ class LineNumberArea(QWidget):
 
             top = block_rect.top()
             bottom = top + block_rect.height()
-
-            # Debug: print block information (only first few)
-            # if block_number < 3:
-            #     print(f"Block {block_number}: top={top}, bottom={bottom}, height={block_rect.height()}")
 
             # Check if block is visible in line number area
             if block.isVisible() and top <= event.rect().bottom() and bottom >= event.rect().top():

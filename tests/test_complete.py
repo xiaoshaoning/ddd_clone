@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Complete test for DDD Clone application.
+Complete smoke test for DDD Clone application.
+
+As a pytest test this sets up the window without blocking. Running it as a
+script (python tests/test_complete.py) additionally enters the Qt event loop.
 """
 
 import sys
@@ -16,7 +19,7 @@ from ddd_clone.gdb.gdb_controller import GDBController
 
 def test_complete_app():
     """Test complete application functionality."""
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
 
     # Initialize GDB controller
     gdb_controller = GDBController()
@@ -26,7 +29,7 @@ def test_complete_app():
     window.show()
 
     # Test loading source code
-    test_file = "../examples/simple_program.c"
+    test_file = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
     if os.path.exists(test_file):
         window.source_viewer.load_source_file(test_file)
         print(f"[OK] Loaded source file: {test_file}")
@@ -40,10 +43,9 @@ def test_complete_app():
         print("[OK] Breakpoint set at line 5")
 
         # Test GDB startup
-        if gdb_controller.start_gdb("../examples/simple_program.exe"):
+        exe_path = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.exe')
+        if gdb_controller.start_gdb(exe_path):
             print("[OK] GDB started successfully")
-
-            # Test run button
             print("[INFO] Run button should now work")
             print("[INFO] You can click in the line number area to set/remove breakpoints")
         else:
@@ -53,14 +55,9 @@ def test_complete_app():
 
     print("\n[OK] Complete application test completed successfully")
     print("The main window should now display:")
-    print("- Source code with line numbers")
-    print("- Breakpoint marker at line 5")
-    print("- Functional toolbar buttons")
-    print("- Line number area for breakpoint setting")
-
-    # Start the application
-    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
     test_complete_app()
+    app = QApplication.instance() or QApplication(sys.argv)
+    sys.exit(app.exec_())

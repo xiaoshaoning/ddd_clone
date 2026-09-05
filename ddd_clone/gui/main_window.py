@@ -7,12 +7,12 @@ from typing import Any
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
-    QAction, QStatusBar, QLabel, QMessageBox, QMenuBar, QMenu, QFileDialog,
-    QLineEdit, QPushButton, QHBoxLayout, QToolTip, QDialog, QComboBox,
-    QSpacerItem, QSizePolicy, QToolButton
+    QAction, QStatusBar, QLabel, QMessageBox, QMenu, QFileDialog,
+    QLineEdit, QPushButton, QToolTip, QDialog, QComboBox,
+    QSizePolicy, QToolButton
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont
 
 from ..gdb.gdb_controller import GDBController
 from .source_viewer import SourceViewer
@@ -327,78 +327,6 @@ class MainWindow(QMainWindow):
                 # Update button text
                 self.syntax_highlight_button.setText(f"Syntax: {style}")
 
-    def show_syntax_highlight_preferences(self) -> None:
-        """Show dialog for selecting syntax highlighting style."""
-        # Available pygments styles (selected for light backgrounds)
-        available_styles = [
-            "pastie",        # Current default - good contrast
-            "friendly",      # Clean and readable
-            "tango",         # Based on Tango desktop palette
-            "perldoc",       # Like perldoc, good for light backgrounds
-            "vs",            # Visual Studio-like
-            "xcode",         # Xcode-like
-            "solarized-light", # Solarized light theme
-            "default",       # Pygments default style
-            "colorful",      # Colorful style
-            "autumn",        # Autumn colors
-            "borland",       # Borland style
-            "vim",           # Vim style
-            "rrt",           # Pygments style
-            "native",        # Native style
-        ]
-
-        # Create dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Syntax Highlighting Preferences")
-        dialog.setModal(True)
-        layout = QVBoxLayout(dialog)
-
-        # Style selection
-        style_label = QLabel("Select syntax highlighting style:")
-        style_label.setFont(QFont("Arial", 14))
-        layout.addWidget(style_label)
-
-        style_combo = QComboBox()
-        style_combo.setFont(QFont("Arial", 14))
-        style_combo.addItems(available_styles)
-        # Set current selection
-        current_style = self.source_viewer.highlight_style
-        current_index = style_combo.findText(current_style)
-        if current_index >= 0:
-            style_combo.setCurrentIndex(current_index)
-        layout.addWidget(style_combo)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        ok_button = QPushButton("OK")
-        ok_button.setFont(QFont("Arial", 14))
-        cancel_button = QPushButton("Cancel")
-        cancel_button.setFont(QFont("Arial", 14))
-
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-
-        # Connect signals
-        def on_ok():
-            new_style = style_combo.currentText()
-            current_style = self.source_viewer.highlight_style
-            if new_style != current_style:
-                # Try to apply new style
-                success = self.source_viewer.set_syntax_highlight_style(new_style)
-                if success:
-                    # Update main window's style tracking
-                    self.syntax_highlight_style = new_style
-            dialog.accept()
-
-        def on_cancel():
-            dialog.reject()
-
-        ok_button.clicked.connect(on_ok)
-        cancel_button.clicked.connect(on_cancel)
-
-        dialog.exec_()
-
     def create_menu_bar(self) -> None:
         """Create the menu bar."""
         # No menu bar needed - all functionality is in toolbar
@@ -464,21 +392,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to run/continue program: {e}")
 
-    def run_program(self) -> None:
-        """Start program execution."""
-        try:
-            # Check if GDB is running
-            if not self.gdb_controller.gdb_process or self.gdb_controller.gdb_process.poll() is not None:
-                QMessageBox.warning(self, "Warning", "GDB is not running. Please load a program first.")
-                return
-
-            if self.gdb_controller.run():
-                self.status_label.setText("Running program...")
-            else:
-                QMessageBox.critical(self, "Error", "Failed to start program execution")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to run program: {e}")
-
     def pause_program(self) -> None:
         """Pause program execution."""
         try:
@@ -506,13 +419,6 @@ class MainWindow(QMainWindow):
             self.gdb_controller.step_out()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to step out: {e}")
-
-    def continue_execution(self) -> None:
-        """Continue program execution."""
-        try:
-            self.gdb_controller.continue_execution()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to continue: {e}")
 
     def update_ui_state(self, state_info: dict) -> None:
         """Update UI based on current debugger state."""
@@ -808,12 +714,10 @@ class MainWindow(QMainWindow):
         match2 = re.search(bp_pattern2, output)
 
         if match1:
-            bp_id = int(match1.group(1))
             file_path = match1.group(2)
             line_number = int(match1.group(3))
             self._add_breakpoint_visual_marker(file_path, line_number)
         elif match2:
-            bp_id = int(match2.group(1))
             file_path = match2.group(2)
             line_number = int(match2.group(3))
             self._add_breakpoint_visual_marker(file_path, line_number)
@@ -981,8 +885,13 @@ class MainWindow(QMainWindow):
             item.setText(2, var_type)
 
     def add_watchpoint_dialog(self) -> None:
-        """Show dialog to add a new watchpoint."""
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QPushButton, QMessageBox
+        """Show modal dialog to add a new watchpoint."""
+        dialog = self._create_watchpoint_dialog()
+        dialog.exec_()
+
+    def _create_watchpoint_dialog(self) -> QDialog:
+        """Build the add-watchpoint dialog (does not exec, so it is testable)."""
+        from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QPushButton
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Add Watchpoint")
@@ -1027,7 +936,7 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
 
-        dialog.exec_()
+        return dialog
 
     def _add_watchpoint_from_dialog(self, expression: str, watch_type: str, dialog: QDialog) -> None:
         """Add watchpoint from dialog input."""
@@ -1152,7 +1061,7 @@ class MainWindow(QMainWindow):
             if self.gdb_controller.send_command(command):
                 # Track this query so we can extract the value from the output
                 self.pending_variable_queries[variable_name] = True
-        except Exception as e:
+        except Exception:
             pass  # Silent error handling
 
     def _show_gdb_output_context_menu(self, position: Any) -> None:
@@ -1204,7 +1113,7 @@ class MainWindow(QMainWindow):
         menu.addAction(delete_action)
 
         # Toggle action
-        enabled = item.text(2) == "True"
+        enabled = item.text(2) == "Yes"
         toggle_text = "Disable" if enabled else "Enable"
         toggle_action = QAction(toggle_text, self.watchpoints_tree)
         toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint_id))
@@ -1287,7 +1196,7 @@ class MainWindow(QMainWindow):
 
         # Copy value action
         copy_value_action = QAction("Copy Value", self.registers_tree)
-        copy_value_action.triggered.connect(lambda: self._copy_register_value(register_name))
+        copy_value_action.triggered.connect(lambda: self._copy_register_value(item.text(2)))
         menu.addAction(copy_value_action)
 
         # Copy name action
@@ -1303,11 +1212,11 @@ class MainWindow(QMainWindow):
         # Show the menu at the cursor position
         menu.exec_(self.registers_tree.viewport().mapToGlobal(position))
 
-    def _copy_register_value(self, register_name: str) -> None:
+    def _copy_register_value(self, value: str) -> None:
         """Copy register value to clipboard."""
         from PyQt5.QtWidgets import QApplication
         clipboard = QApplication.clipboard()
-        clipboard.setText(register_name)
+        clipboard.setText(value)
 
     def _copy_register_name(self, register_name: str) -> None:
         """Copy register name to clipboard."""

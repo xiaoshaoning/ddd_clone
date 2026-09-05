@@ -78,6 +78,9 @@ class TestGDBController(unittest.TestCase):
         self.assertTrue(result)
         mock_process.stdin.write.assert_called_once_with("test_command\n")
 
+        # Stop the reader thread so it does not emit on a deleted controller
+        self.controller.shutdown()
+
     def test_debug_commands(self):
         """Test debug command methods."""
         # Mock send_command
