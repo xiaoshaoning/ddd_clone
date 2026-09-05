@@ -359,6 +359,10 @@ class MainWindow(QMainWindow):
         self.breakpoint_manager.watchpoint_removed.connect(self._update_watchpoints_tree)
         self.breakpoint_manager.watchpoint_updated.connect(self._update_watchpoints_tree)
 
+        # Connect variable tree expansion for composite types
+        self.variables_tree.itemExpanded.connect(self._on_variable_expanded)
+        self.variables_tree.itemCollapsed.connect(self._on_variable_collapsed)
+
     def run_or_continue(self) -> None:
         """Run program (if not started) or continue execution (if paused)."""
         try:
@@ -855,34 +859,63 @@ class MainWindow(QMainWindow):
     def _update_variables_tree(self) -> None:
         """Update the variables tree with current variable values."""
         self.variables_tree.clear()
-        # Get variables from GDB
-        variables = self.gdb_controller.get_variables()
+        self.variable_inspector.update_variables()
+        variables = self.variable_inspector.get_local_variables()
 
         for var in variables:
             item = QTreeWidgetItem(self.variables_tree)
-            name = var.get('name', 'N/A')
-            value = var.get('value', '')
-            var_type = var.get('type', 'N/A')
+            name = var.name or 'N/A'
+            value = var.value or ''
+            var_type = var.type or 'N/A'
 
             item.setText(0, name)
 
-            # Handle empty values (e.g., arrays, structures)
+            # Empty values mean composite types (arrays, structs)
             if not value:
-                # Check if it's an array type
-                if '[' in var_type or 'array' in var_type.lower():
-                    # For arrays, show address if available, otherwise just "array"
-                    addr = var.get('addr', '')
-                    if addr:
-                        item.setText(1, f"array @ {addr}")
-                    else:
-                        item.setText(1, "array")
+                if VariableInspector._is_array_type(var_type):
+                    item.setText(1, "array")
                 else:
-                    # For other types with no value, show type
                     item.setText(1, var_type)
             else:
                 item.setText(1, value)
 
             item.setText(2, var_type)
+            item.setData(0, Qt.UserRole, name)
+
+            # Show an expand indicator for arrays (the only expandable type wired up)
+            if VariableInspector._is_array_type(var_type):
+                item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+
+    def _on_variable_expanded(self, item: QTreeWidgetItem) -> None:
+        """Load and display children of an expanded variable."""
+        name = item.data(0, Qt.UserRole)
+        if not name:
+            return
+        self.variable_inspector.expand_variable(name)
+        var = self._find_inspector_variable(name)
+        if not var:
+            return
+        item.takeChildren()  # clear stale children on re-expand
+        for child in var.children:
+            child_item = QTreeWidgetItem(item)
+            child_item.setText(0, child.name)
+            child_item.setText(1, child.value or "")
+            child_item.setText(2, child.type or "")
+            child_item.setData(0, Qt.UserRole, child.name)
+
+    def _on_variable_collapsed(self, item: QTreeWidgetItem) -> None:
+        """Collapse a variable and remove its displayed children."""
+        name = item.data(0, Qt.UserRole)
+        if name:
+            self.variable_inspector.collapse_variable(name)
+            item.takeChildren()
+
+    def _find_inspector_variable(self, name: str):
+        """Find a parsed variable by name in the inspector."""
+        for var in self.variable_inspector.get_local_variables():
+            if var.name == name:
+                return var
+        return None
 
     def add_watchpoint_dialog(self) -> None:
         """Show modal dialog to add a new watchpoint."""

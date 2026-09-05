@@ -1,7 +1,8 @@
 # Project: ddd clone under Windows
 
 ## Architecture
-- Python and numpy
+- Python 3 + PyQt5 GUI
+- Drives GDB via its Machine Interface (MI) protocol
 
 ## Coding Standards
 - coding type: use snake naming.

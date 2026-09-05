@@ -213,6 +213,50 @@ def test_variable_inspector_gui(qtbot):
     assert variables[0].type == "int"
 
 
+def test_variable_tree_expansion(qtbot):
+    """Test that arrays in the Variables tree expand and show children."""
+    from ddd_clone.gui.main_window import MainWindow
+    from ddd_clone.gdb.gdb_controller import GDBController
+
+    # Mock GDB controller
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_variables.return_value = [
+        {'name': 'x', 'value': '5', 'type': 'int'},
+        {'name': 'arr', 'value': '', 'type': 'int [5]'},
+    ]
+    mock_gdb.evaluate_expression = Mock(side_effect=lambda expr: f'<{expr}>')
+
+    # Create main window
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    window._update_variables_tree()
+
+    # Find the arr item
+    arr_item = None
+    for i in range(window.variables_tree.topLevelItemCount()):
+        it = window.variables_tree.topLevelItem(i)
+        if it.text(0) == 'arr':
+            arr_item = it
+    assert arr_item is not None
+
+    # Scalar item should not be expandable
+    x_item = window.variables_tree.topLevelItem(0)
+
+    # Expand the array -> itemExpanded -> _on_variable_expanded -> load children
+    arr_item.setExpanded(True)
+    qtbot.wait(50)
+    assert arr_item.childCount() == 5
+    assert arr_item.child(0).text(0) == '[0]'
+    assert arr_item.child(0).text(2) == 'int'
+
+    # Collapse removes the children
+    arr_item.setExpanded(False)
+    qtbot.wait(50)
+    assert arr_item.childCount() == 0
+
+
 def test_main_window_advanced(qtbot):
     """Test advanced MainWindow functionality."""
     from ddd_clone.gui.main_window import MainWindow
