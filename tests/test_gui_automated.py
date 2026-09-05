@@ -257,6 +257,31 @@ def test_variable_tree_expansion(qtbot):
     assert arr_item.childCount() == 0
 
 
+def test_breakpoint_marker_creation_only(qtbot):
+    """Only breakpoint creation messages add a marker, not stop messages."""
+    from ddd_clone.gui.main_window import MainWindow
+    from ddd_clone.gdb.gdb_controller import GDBController
+
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    src = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
+    if not os.path.exists(src):
+        return  # example not present; nothing to verify
+    window.source_viewer.load_source_file(src)
+    window.source_viewer.breakpoint_lines.clear()
+
+    # A stop message ("Breakpoint N, main () at file:line") must NOT add a marker
+    window._handle_breakpoint_output('Breakpoint 1, main () at simple_program.c:23')
+    assert window.source_viewer.breakpoint_lines == set()
+
+    # A creation message ("Breakpoint N at ... file ..., line N") SHOULD add one
+    window._handle_breakpoint_output('Breakpoint 1 at 0x401530: file simple_program.c, line 5.')
+    assert 5 in window.source_viewer.breakpoint_lines
+
+
 def test_main_window_advanced(qtbot):
     """Test advanced MainWindow functionality."""
     from ddd_clone.gui.main_window import MainWindow

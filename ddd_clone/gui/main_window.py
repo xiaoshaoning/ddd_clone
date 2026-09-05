@@ -706,24 +706,16 @@ class MainWindow(QMainWindow):
         """Handle GDB output related to breakpoint creation."""
         import re
 
-        # Look for breakpoint creation messages
-        # Examples: "Breakpoint 1 at 0x401530: file simple_program.c, line 5."
-        # Or: "Breakpoint 1, main () at simple_program.c:5"
+        # Add a marker only for breakpoint *creation* messages (e.g.
+        # "Breakpoint 1 at 0x401530: file simple_program.c, line 5.").
+        # Stop messages ("Breakpoint 1, main () at ...:23") must NOT add a
+        # marker - that duplicates the requested breakpoint line.
+        bp_pattern = r'Breakpoint (\d+) at .* file ([^,]+), line (\d+)'
+        match = re.search(bp_pattern, output)
 
-        # Pattern for breakpoint creation
-        bp_pattern1 = r'Breakpoint (\d+) at .* file ([^,]+), line (\d+)'
-        bp_pattern2 = r'Breakpoint (\d+), .* at ([^:]+):(\d+)'
-
-        match1 = re.search(bp_pattern1, output)
-        match2 = re.search(bp_pattern2, output)
-
-        if match1:
-            file_path = match1.group(2)
-            line_number = int(match1.group(3))
-            self._add_breakpoint_visual_marker(file_path, line_number)
-        elif match2:
-            file_path = match2.group(2)
-            line_number = int(match2.group(3))
+        if match:
+            file_path = match.group(2)
+            line_number = int(match.group(3))
             self._add_breakpoint_visual_marker(file_path, line_number)
 
     def _add_breakpoint_visual_marker(self, file_path: str, line_number: int) -> None:
