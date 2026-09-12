@@ -2,6 +2,9 @@
 Breakpoint and watchpoint manager for handling breakpoints and watchpoints in the debugger.
 """
 
+import json
+import os
+
 from typing import Dict, List, Optional
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -281,9 +284,6 @@ class BreakpointManager(QObject):
             True if successful, False otherwise
         """
         try:
-            import json
-            import os
-
             if not os.path.exists(file_path):
                 return False
 
@@ -363,8 +363,6 @@ class BreakpointManager(QObject):
             True if successful, False otherwise
         """
         try:
-            import json
-
             # Prepare data structure
             data = {
                 'breakpoints': [bp.to_dict() for bp in self.breakpoints.values()],

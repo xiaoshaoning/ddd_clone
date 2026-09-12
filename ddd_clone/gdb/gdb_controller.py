@@ -27,9 +27,21 @@ _MI_ESCAPES = {
 }
 
 
+# Body of an MI C-string. Escaped quotes and backslashes are consumed by
+# the second alternative, so a value may contain them without terminating
+# the match.
+_MI_STRING = r'(?:[^"\\]|\\.)*'
+
+
 def _unescape_mi_string(text: str) -> str:
     """Decode the C-string escapes GDB/MI uses inside stream records."""
     return re.sub(r'\\(.)', lambda m: _MI_ESCAPES.get(m.group(1), m.group(1)), text)
+
+
+def _find_mi_string(text: str, key: str) -> Optional[str]:
+    """Decode an MI key="..." field, or return None when it is absent."""
+    match = re.search(re.escape(key) + r'="(' + _MI_STRING + r')"', text)
+    return _unescape_mi_string(match.group(1)) if match else None
 
 
 def _mi_stream_text(content: str) -> str:
@@ -53,7 +65,6 @@ class GDBController(QObject):
     def __init__(self):
         super().__init__()
         self.gdb_process = None
-        self.output_queue = queue.Queue()
         self.read_thread = None
         self.current_state = {
             'state': 'disconnected',
@@ -65,6 +76,8 @@ class GDBController(QObject):
         self.response_queues = {}
         self.token_counter = 0
         self.response_lock = threading.Lock()
+        # Register names are fixed for a session, so they are fetched once
+        self._register_names: Optional[List[Dict[str, str]]] = None
 
     def start_gdb(self, program_path: Optional[str] = None) -> bool:
         """
@@ -83,6 +96,9 @@ class GDBController(QObject):
             cmd = ['gdb', '--quiet', '--interpreter=mi2']
             if program_path:
                 cmd.append(program_path)
+
+            # A new session may target a different architecture
+            self._register_names = None
 
             self.gdb_process = subprocess.Popen(
                 cmd,
@@ -112,7 +128,6 @@ class GDBController(QObject):
             try:
                 line = self.gdb_process.stdout.readline()
                 if line:
-                    self.output_queue.put(line)
                     self._process_output(line)
             except (OSError, UnicodeDecodeError, TypeError, ValueError, RuntimeError) as e:
                 try:
@@ -171,8 +186,8 @@ class GDBController(QObject):
             if text.strip():
                 self.console_output.emit(text)
         elif record_type == '^' and content.startswith('error'):
-            match = re.search(r'msg="([^"]*)"', content)
-            self.console_output.emit("Error: " + (match.group(1) if match else 'unknown error'))
+            message = _find_mi_string(content, 'msg')
+            self.console_output.emit("Error: " + (message if message else 'unknown error'))
         elif record_type in ('*', '^') and content.startswith('stopped'):
             self._handle_stopped_state(content)
         elif record_type in ('*', '^') and content.startswith('running'):
@@ -185,12 +200,10 @@ class GDBController(QObject):
 
     def _emit_breakpoint_created(self, content: str) -> None:
         """Emit the source location of a breakpoint GDB just created."""
-        file_match = re.search(r'file="([^"]*)"', content)
+        file_path = _find_mi_string(content, 'file')
         line_match = re.search(r'line="(\d+)"', content)
-        if file_match and line_match:
-            self.breakpoint_created.emit(
-                _unescape_mi_string(file_match.group(1)), int(line_match.group(1))
-            )
+        if file_path is not None and line_match:
+            self.breakpoint_created.emit(file_path, int(line_match.group(1)))
 
     def _handle_stopped_state(self, content: str) -> None:
         """Update state from a stopped record's content (may report an exit)."""
@@ -205,19 +218,19 @@ class GDBController(QObject):
         else:
             # Normal stopped state (e.g., breakpoint hit)
             state['state'] = 'stopped'
-            file_match = re.search(r'file="([^"]+)"', content)
-            fullname_match = re.search(r'fullname="([^"]+)"', content)
+            file_path = _find_mi_string(content, 'file')
+            fullname = _find_mi_string(content, 'fullname')
+            func = _find_mi_string(content, 'func')
             line_match = re.search(r'line="(\d+)"', content)
-            func_match = re.search(r'func="([^"]+)"', content)
             # file is often just the basename; fullname is the absolute path
-            if file_match:
-                state['file'] = _unescape_mi_string(file_match.group(1))
-            if fullname_match:
-                state['fullname'] = _unescape_mi_string(fullname_match.group(1))
+            if file_path is not None:
+                state['file'] = file_path
+            if fullname is not None:
+                state['fullname'] = fullname
             if line_match:
                 state['line'] = int(line_match.group(1))
-            if func_match:
-                state['function'] = func_match.group(1)
+            if func is not None:
+                state['function'] = func
 
         self.state_changed.emit(state.copy())
 
@@ -376,6 +389,10 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return []
 
+        # Register names are fixed for a session, so fetch them only once
+        if self._register_names is not None:
+            return list(self._register_names)
+
         try:
             response = self.send_mi_command_sync("-data-list-register-names")
             if not response:
@@ -398,6 +415,7 @@ class GDBController(QObject):
         registers = []
         for i, name in enumerate(register_names):
             registers.append({"number": str(i), "name": name})
+        self._register_names = registers
         return registers
 
     def get_register_values(self, format: str = "x") -> List[Dict[str, str]]:
@@ -463,17 +481,11 @@ class GDBController(QObject):
             return []
 
         vars_str = match.group(1)
-        # Parse individual variable entries
-        # Each entry is {name="...",value="...",type="..."}
-        variables = []
-        # Use findall to extract each {} block, handling nested braces in types like int [5]
-        # First, let's print the vars_str to see its exact content
-
-        # Find all top-level {...} entries, being careful with nested braces in types
-        # Simple approach: find all matches of { ... } where ... doesn't contain unmatched braces
-        # Since types may contain brackets like int [5], we need a more robust method
-        # Let's try parsing manually by scanning the string
+        # Parse individual variable entries, each {name="...",value="...",type="..."}.
+        # Types may contain braces and brackets (int [5], struct {...}), so the
+        # entries are separated by scanning brace depth rather than by regex.
         entries = []
+        variables = []
         start = -1
         brace_count = 0
         for i, char in enumerate(vars_str):
@@ -492,17 +504,11 @@ class GDBController(QObject):
             if not entry.strip():
                 continue
 
-            # Parse key-value pairs
+            # Parse key-value pairs, respecting quoted strings
             var_dict = {}
-            # Split by comma, but respect quoted strings
-            # Match key=value pairs, handling optional comma and whitespace before key
-            # Pattern: (optional comma or start) whitespace* key="value"
-            # Key cannot contain =, ", comma, or whitespace
-            pattern = r'(?:,|^)\s*([^=",\s]+?)="([^"]*)"'
-            matches = re.findall(pattern, entry)
-            # Debug: print matches for this entry
-            for key, value in matches:
-                var_dict[key] = value
+            pattern = r'(?:,|^)\s*([^=",\s]+?)="(' + _MI_STRING + r')"'
+            for key, value in re.findall(pattern, entry):
+                var_dict[key] = _unescape_mi_string(value)
 
             if var_dict:
                 variables.append(var_dict)
@@ -595,7 +601,7 @@ class GDBController(QObject):
         for entry in entries:
             # Parse key-value pairs
             frame_dict = {}
-            pattern = r'(\w+)="([^"]*)"'
+            pattern = r'(\w+)="(' + _MI_STRING + r')"'
             for key, value in re.findall(pattern, entry):
                 frame_dict[key] = _unescape_mi_string(value)
 
@@ -642,11 +648,7 @@ class GDBController(QObject):
             return None
 
         # Parse value from response: ^done,value="..."
-        match = re.search(r'value="([^"]*)"', content)
-        if not match:
-            return None
-
-        return match.group(1)
+        return _find_mi_string(content, 'value')
 
     def get_variable_children(self, expression: str) -> List[Dict[str, str]]:
         """
@@ -685,7 +687,7 @@ class GDBController(QObject):
 
         children = []
         for entry in re.findall(r'child=\{([^}]*)\}', content):
-            fields = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', entry))
+            fields = dict(re.findall(r'(\w[\w-]*)="(' + _MI_STRING + r')"', entry))
             children.append({
                 # 'exp' is the field name as written in the source
                 'name': _unescape_mi_string(fields.get('exp') or fields.get('name', '')),
@@ -753,6 +755,7 @@ class GDBController(QObject):
         if self.read_thread and self.read_thread.is_alive():
             self.read_thread.join(timeout=2)
 
+        self._register_names = None
         self.current_state['state'] = 'disconnected'
         self.state_changed.emit(self.current_state.copy())
 

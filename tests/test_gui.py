@@ -19,7 +19,10 @@ from ddd_clone.gdb.gdb_controller import GDBController
 
 def test_gui():
     """Test the GUI functionality."""
+    # The local reference is deliberate: it keeps the QApplication alive for
+    # the widgets created below (pyflakes flags it as unused without this).
     app = QApplication.instance() or QApplication(sys.argv)
+    assert app is not None
 
     # Initialize GDB controller
     gdb_controller = GDBController()

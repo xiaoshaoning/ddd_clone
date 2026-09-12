@@ -767,8 +767,6 @@ class MainWindow(QMainWindow):
 
     def _create_watchpoint_dialog(self) -> QDialog:
         """Build the add-watchpoint dialog (does not exec, so it is testable)."""
-        from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QPushButton
-
         dialog = QDialog(self)
         dialog.setWindowTitle("Add Watchpoint")
         dialog.setModal(True)
@@ -1086,8 +1084,6 @@ class MainWindow(QMainWindow):
 
     def save_breakpoints(self) -> None:
         """Save breakpoints and watchpoints to a file."""
-        from PyQt5.QtWidgets import QFileDialog
-
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Breakpoints",
@@ -1103,8 +1099,6 @@ class MainWindow(QMainWindow):
 
     def load_breakpoints(self) -> None:
         """Load breakpoints and watchpoints from a file."""
-        from PyQt5.QtWidgets import QFileDialog
-
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Breakpoints",

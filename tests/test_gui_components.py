@@ -5,13 +5,12 @@ Tests watchpoint dialog and register tree updates.
 
 import sys
 import os
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # PyQt5 imports
-from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QPoint
 
 # Import the modules to test

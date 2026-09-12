@@ -5,13 +5,13 @@ These tests run without manual intervention.
 
 import sys
 import os
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # PyQt5 imports
-from PyQt5.QtWidgets import QWidget, QPushButton, QApplication
+from PyQt5.QtWidgets import QWidget, QPushButton
 from PyQt5.QtCore import Qt
 
 
@@ -135,7 +135,7 @@ def test_line_number_area_basics(qtbot):
 
 def test_breakpoint_manager_gui(qtbot):
     """Test BreakpointManager GUI integration."""
-    from ddd_clone.gui.breakpoint_manager import BreakpointManager, Breakpoint
+    from ddd_clone.gui.breakpoint_manager import BreakpointManager
     from ddd_clone.gdb.gdb_controller import GDBController
 
     # Mock GDB controller
@@ -169,7 +169,7 @@ def test_breakpoint_manager_gui(qtbot):
 
 def test_variable_inspector_gui(qtbot):
     """Test VariableInspector GUI integration."""
-    from ddd_clone.gui.variable_inspector import VariableInspector, Variable
+    from ddd_clone.gui.variable_inspector import VariableInspector
     from ddd_clone.gdb.gdb_controller import GDBController
 
     # Mock GDB controller
@@ -240,9 +240,6 @@ def test_variable_tree_expansion(qtbot):
         if it.text(0) == 'arr':
             arr_item = it
     assert arr_item is not None
-
-    # Scalar item should not be expandable
-    x_item = window.variables_tree.topLevelItem(0)
 
     # Expand the array -> itemExpanded -> _on_variable_expanded -> load children
     arr_item.setExpanded(True)
@@ -501,7 +498,7 @@ def test_breakpoint_mouse_click(qtbot):
     assert call_args[0][0] == test_file, f"File argument mismatch: {call_args[0][0]}"
     assert call_args[0][1] == 8, f"Line argument mismatch: {call_args[0][1]}"
 
-    print(f"[OK] Breakpoint successfully set via mouse click at line 8")
+    print("[OK] Breakpoint successfully set via mouse click at line 8")
     print(f"[OK] GDB set_breakpoint called with: {call_args}")
 
 

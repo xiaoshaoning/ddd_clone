@@ -3,7 +3,7 @@ Unit tests for GDB controller.
 """
 
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import queue
 import sys
 import os
@@ -432,6 +432,57 @@ class TestGDBController(unittest.TestCase):
         self.controller.gdb_process = None
         registers = self.controller.get_registers()
         self.assertEqual(registers, [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_registers_cached(self, mock_send_mi):
+        """Register names are fetched once per session."""
+        mock_send_mi.return_value = ('^', 'done,register-names=["eax","ebx"]')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        first = self.controller.get_registers()
+        second = self.controller.get_registers()
+
+        self.assertEqual(first, second)
+        mock_send_mi.assert_called_once_with("-data-list-register-names")
+
+        # A new session starts with an empty cache
+        self.controller.shutdown()
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+        self.controller.get_registers()
+        self.assertEqual(mock_send_mi.call_count, 2)
+
+    def test_parse_variables_response_unescapes(self):
+        """Variable values come back with MI escapes decoded."""
+        content = 'done,variables=[{name="path",value="C:\\\\dir\\\\file",type="char *"}]'
+
+        variables = self.controller._parse_variables_response(content)
+
+        self.assertEqual(variables, [
+            {'name': 'path', 'value': 'C:\\dir\\file', 'type': 'char *'},
+        ])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_evaluate_expression_unescapes(self, mock_send_mi):
+        """Evaluated string values come back with MI escapes decoded."""
+        mock_send_mi.return_value = ('^', 'done,value="C:\\\\dir\\\\file"')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        self.assertEqual(self.controller.evaluate_expression('path'),
+                         'C:\\dir\\file')
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_evaluate_expression_escaped_quotes(self, mock_send_mi):
+        """A value is not truncated at an escaped quote inside it."""
+        mock_send_mi.return_value = (
+            '^', 'done,value="0x1000 \\"C:\\\\file\\""')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        self.assertEqual(self.controller.evaluate_expression('path'),
+                         '0x1000 "C:\\file"')
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_register_values(self, mock_send_mi):
