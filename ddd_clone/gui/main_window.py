@@ -361,12 +361,11 @@ class MainWindow(QMainWindow):
         self.source_viewer.variable_hovered.connect(self.handle_variable_hover)
 
         # Connect breakpoint manager signals
-        self.breakpoint_manager.breakpoint_added.connect(self._update_breakpoints_tree)
-        self.breakpoint_manager.breakpoint_removed.connect(self._update_breakpoints_tree)
-        self.breakpoint_manager.breakpoint_updated.connect(self._update_breakpoints_tree)
-        self.breakpoint_manager.watchpoint_added.connect(self._update_watchpoints_tree)
-        self.breakpoint_manager.watchpoint_removed.connect(self._update_watchpoints_tree)
-        self.breakpoint_manager.watchpoint_updated.connect(self._update_watchpoints_tree)
+        self.breakpoint_manager.breakpoints_changed.connect(self._update_breakpoints_tree)
+        self.breakpoint_manager.watchpoints_changed.connect(self._update_watchpoints_tree)
+        # GDB creates breakpoints we did not ask for too (a `break` typed at the
+        # console), so re-read its list whenever it reports a new one.
+        self.gdb_controller.breakpoint_created.connect(self.breakpoint_manager.refresh)
 
         # Connect variable inspector signals
         self.variable_inspector.watch_expression_added.connect(self._update_watch_tree)
@@ -469,7 +468,8 @@ class MainWindow(QMainWindow):
             self._update_call_stack_tree()
             self.variable_inspector.update_watch_expressions()
             self._update_watch_tree()
-            self._update_watchpoints_tree()
+            # Rebuilds the breakpoint and watchpoint trees through its signals
+            self.breakpoint_manager.refresh()
             self.memory_viewer.refresh()
 
     def _resolve_source_path(self, state_info: dict) -> Optional[str]:
@@ -534,8 +534,8 @@ class MainWindow(QMainWindow):
             item.setText(1, str(bp.line))
             item.setText(2, bp.condition or "")
             item.setText(3, "Yes" if bp.enabled else "No")
-            # Store breakpoint ID in the item
-            item.setData(0, Qt.UserRole, bp.breakpoint_id)
+            # Store GDB's breakpoint number in the item
+            item.setData(0, Qt.UserRole, bp.gdb_number)
 
     def _update_call_stack_tree(self) -> None:
         """Update the call stack tree with the frames GDB reports."""
@@ -578,23 +578,69 @@ class MainWindow(QMainWindow):
 
         menu = QMenu(self.breakpoints_tree)
 
+        condition_action = QAction("Edit Condition...", self.breakpoints_tree)
+        condition_action.triggered.connect(
+            lambda: self._edit_breakpoint_condition(breakpoint.gdb_number))
+        menu.addAction(condition_action)
+
         toggle_text = "Disable" if breakpoint.enabled else "Enable"
         toggle_action = QAction(toggle_text, self.breakpoints_tree)
         toggle_action.triggered.connect(
-            lambda: self.breakpoint_manager.toggle_breakpoint(breakpoint.breakpoint_id))
+            lambda: self.breakpoint_manager.toggle_breakpoint(breakpoint.gdb_number))
         menu.addAction(toggle_action)
 
         delete_action = QAction("Delete", self.breakpoints_tree)
         delete_action.triggered.connect(
-            lambda: self._delete_breakpoint(breakpoint.breakpoint_id))
+            lambda: self._delete_breakpoint(breakpoint.gdb_number))
         menu.addAction(delete_action)
 
         menu.exec_(self.breakpoints_tree.viewport().mapToGlobal(position))
 
-    def _delete_breakpoint(self, breakpoint_id: int) -> None:
+    def _edit_breakpoint_condition(self, gdb_number: int) -> None:
+        """Ask for a new condition and apply it to the breakpoint."""
+        breakpoint = self.breakpoint_manager.get_breakpoint(gdb_number)
+        if not breakpoint:
+            return
+
+        dialog = self._create_condition_dialog(breakpoint)
+        if dialog.exec_() == QDialog.Accepted:
+            self.breakpoint_manager.update_breakpoint_condition(
+                gdb_number, getattr(dialog, 'condition', None))
+
+    def _create_condition_dialog(self, breakpoint) -> QDialog:
+        """Build the breakpoint-condition dialog (does not exec, so it is testable)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Breakpoint Condition")
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            f"Condition for {os.path.basename(breakpoint.file)}:{breakpoint.line}"))
+
+        condition_input = QLineEdit(dialog)
+        condition_input.setText(breakpoint.condition or "")
+        condition_input.setPlaceholderText("e.g. i == 5 (empty removes the condition)")
+        layout.addWidget(condition_input)
+
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK", dialog)
+        cancel_button = QPushButton("Cancel", dialog)
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+
+        def on_ok():
+            dialog.condition = condition_input.text().strip()
+            dialog.accept()
+
+        ok_button.clicked.connect(on_ok)
+        cancel_button.clicked.connect(dialog.reject)
+        return dialog
+
+    def _delete_breakpoint(self, gdb_number: int) -> None:
         """Delete a breakpoint and its visual marker."""
-        breakpoint = self.breakpoint_manager.get_breakpoint(breakpoint_id)
-        if breakpoint and self.breakpoint_manager.remove_breakpoint(breakpoint_id):
+        breakpoint = self.breakpoint_manager.get_breakpoint(gdb_number)
+        if breakpoint and self.breakpoint_manager.remove_breakpoint(gdb_number):
             if self._is_current_source(breakpoint.file):
                 self.source_viewer.remove_breakpoint_marker(breakpoint.line)
 
@@ -613,7 +659,7 @@ class MainWindow(QMainWindow):
                 value = self.gdb_controller.evaluate_expression(wp.expression)
                 item.setText(3, value if value is not None else "N/A")
             # Store watchpoint ID in the item
-            item.setData(0, Qt.UserRole, wp.watchpoint_id)
+            item.setData(0, Qt.UserRole, wp.gdb_number)
 
     def _update_watch_tree(self) -> None:
         """Update the Watch tab with the current watch expressions."""
@@ -869,7 +915,7 @@ class MainWindow(QMainWindow):
                 breakpoints = self.breakpoint_manager.get_breakpoints_in_file(current_file)
                 for bp in breakpoints:
                     if bp.line == line_number:
-                        self.breakpoint_manager.remove_breakpoint(bp.breakpoint_id)
+                        self.breakpoint_manager.remove_breakpoint(bp.gdb_number)
                         break
 
     def execute_gdb_command(self) -> None:
@@ -903,7 +949,7 @@ class MainWindow(QMainWindow):
 
             if existing_bp:
                 # Remove existing breakpoint
-                if self.breakpoint_manager.remove_breakpoint(existing_bp.breakpoint_id):
+                if self.breakpoint_manager.remove_breakpoint(existing_bp.gdb_number):
                     # Only remove visual marker if GDB successfully removed the breakpoint
                     self.source_viewer.remove_breakpoint_marker(line_number)
                 else:
@@ -959,26 +1005,26 @@ class MainWindow(QMainWindow):
 
         # Edit action
         edit_action = QAction("Edit", self.watchpoints_tree)
-        edit_action.triggered.connect(lambda: self._edit_watchpoint(watchpoint.watchpoint_id))
+        edit_action.triggered.connect(lambda: self._edit_watchpoint(watchpoint.gdb_number))
         menu.addAction(edit_action)
 
         # Delete action
         delete_action = QAction("Delete", self.watchpoints_tree)
-        delete_action.triggered.connect(lambda: self._delete_watchpoint(watchpoint.watchpoint_id))
+        delete_action.triggered.connect(lambda: self._delete_watchpoint(watchpoint.gdb_number))
         menu.addAction(delete_action)
 
         # Toggle action
         toggle_text = "Disable" if watchpoint.enabled else "Enable"
         toggle_action = QAction(toggle_text, self.watchpoints_tree)
-        toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint.watchpoint_id))
+        toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint.gdb_number))
         menu.addAction(toggle_action)
 
         # Show the menu at the cursor position
         menu.exec_(self.watchpoints_tree.viewport().mapToGlobal(position))
 
-    def _edit_watchpoint(self, watchpoint_id: int) -> None:
+    def _edit_watchpoint(self, gdb_number: int) -> None:
         """Edit a watchpoint."""
-        watchpoint = self.breakpoint_manager.get_watchpoint(watchpoint_id)
+        watchpoint = self.breakpoint_manager.get_watchpoint(gdb_number)
         if not watchpoint:
             return
 
@@ -1017,7 +1063,7 @@ class MainWindow(QMainWindow):
             new_type = type_combo.currentText()
             if new_expr and new_type:
                 self.breakpoint_manager.update_watchpoint_expression(
-                    watchpoint_id, new_expr, new_type
+                    gdb_number, new_expr, new_type
                 )
             dialog.accept()
 
@@ -1029,13 +1075,13 @@ class MainWindow(QMainWindow):
 
         dialog.exec_()
 
-    def _delete_watchpoint(self, watchpoint_id: int) -> None:
+    def _delete_watchpoint(self, gdb_number: int) -> None:
         """Delete a watchpoint."""
-        self.breakpoint_manager.remove_watchpoint(watchpoint_id)
+        self.breakpoint_manager.remove_watchpoint(gdb_number)
 
-    def _toggle_watchpoint(self, watchpoint_id: int) -> None:
+    def _toggle_watchpoint(self, gdb_number: int) -> None:
         """Toggle a watchpoint enabled state."""
-        self.breakpoint_manager.toggle_watchpoint(watchpoint_id)
+        self.breakpoint_manager.toggle_watchpoint(gdb_number)
 
     def _show_registers_context_menu(self, position: Any) -> None:
         """Show context menu for registers tree."""

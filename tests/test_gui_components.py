@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # PyQt5 imports
+from PyQt5.QtWidgets import QDialog, QLabel
 from PyQt5.QtCore import Qt, QPoint
 
 # Import the modules to test
@@ -288,14 +289,14 @@ def test_breakpoints_tree_and_delete(qtbot):
     bp = window.breakpoint_manager.add_breakpoint('simple_program.c', 22)
     assert bp is not None
 
-    # The breakpoint_added signal refreshes the tree
+    # The breakpoints_changed signal refreshes the tree
     assert window.breakpoints_tree.topLevelItemCount() == 1
     item = window.breakpoints_tree.topLevelItem(0)
     assert item.text(0) == 'simple_program.c'
     assert item.text(1) == '22'
     assert item.text(3) == 'Yes'
 
-    window._delete_breakpoint(bp.breakpoint_id)
+    window._delete_breakpoint(bp.gdb_number)
     mock_gdb.delete_breakpoint.assert_called_once_with(4)
     assert window.breakpoints_tree.topLevelItemCount() == 0
 
@@ -356,6 +357,7 @@ def test_update_ui_state_follows_source_file(qtbot, tmp_path):
     mock_gdb.get_register_values.return_value = []
     mock_gdb.get_variables.return_value = []
     mock_gdb.get_call_stack.return_value = []
+    mock_gdb.get_breakpoints.return_value = []
 
     window = MainWindow(mock_gdb)
     qtbot.addWidget(window)
@@ -445,3 +447,52 @@ def test_memory_tab_and_display(qtbot):
     mock_gdb.read_memory.reset_mock()
     window._display_memory('N/A')
     mock_gdb.read_memory.assert_not_called()
+
+
+def test_console_breakpoint_appears_when_gdb_reports_it(qtbot):
+    """A breakpoint created outside the manager shows up once GDB reports it."""
+    controller = GDBController()  # no process; its breakpoint list is stubbed
+    controller.get_breakpoints = Mock(return_value=[
+        {'number': 7, 'enabled': True, 'watchpoint': False,
+         'file': 'other.c', 'line': 3, 'condition': None},
+    ])
+
+    window = MainWindow(controller)
+    qtbot.addWidget(window)
+    assert window.breakpoints_tree.topLevelItemCount() == 0
+
+    # e.g. the user typed `break other.c:3` at the console
+    controller.breakpoint_created.emit('other.c', 3)
+
+    assert window.breakpoints_tree.topLevelItemCount() == 1
+    item = window.breakpoints_tree.topLevelItem(0)
+    assert item.text(0) == 'other.c'
+    assert item.text(1) == '3'
+    # The item is keyed by GDB's number, so the context menu can find it
+    assert item.data(0, Qt.UserRole) == 7
+
+
+def test_condition_dialog_and_edit(qtbot):
+    """The condition dialog pre-fills the current condition and applies it."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.set_breakpoint = Mock(return_value=4)
+    mock_gdb.set_breakpoint_condition = Mock(return_value=True)
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    bp = window.breakpoint_manager.add_breakpoint('simple_program.c', 22)
+
+    dialog = window._create_condition_dialog(bp)
+    qtbot.addWidget(dialog)
+    assert 'simple_program.c:22' in dialog.findChildren(QLabel)[0].text()
+
+    # Accepting the dialog applies whatever it was given
+    dialog.condition = 'i == 5'
+    dialog.exec_ = Mock(return_value=QDialog.Accepted)
+    window._create_condition_dialog = Mock(return_value=dialog)
+
+    window._edit_breakpoint_condition(bp.gdb_number)
+
+    mock_gdb.set_breakpoint_condition.assert_called_once_with(4, 'i == 5')
+    assert window.breakpoints_tree.topLevelItem(0).text(2) == 'i == 5'

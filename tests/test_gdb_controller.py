@@ -277,6 +277,70 @@ class TestGDBController(unittest.TestCase):
         self.assertIsNone(result)
 
     @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_breakpoints(self, mock_send_mi):
+        """GDB's breakpoint list is decoded into breakpoints and watchpoints."""
+        mock_send_mi.return_value = (
+            '^', 'done,BreakpointTable={nr_rows="4",nr_cols="6",body=['
+                 'bkpt={number="1",type="breakpoint",disp="keep",enabled="y",'
+                 'file="simple.c",fullname="D:\\\\p\\\\simple.c",line="5",'
+                 'original-location="simple.c:5"},'
+                 'bkpt={number="2",type="breakpoint",disp="keep",enabled="n",'
+                 'file="simple.c",fullname="D:\\\\p\\\\simple.c",line="9",'
+                 'cond="i > 5",original-location="simple.c:9"},'
+                 'bkpt={number="3",type="hw watchpoint",disp="keep",enabled="y",'
+                 'what="p",original-location="p"},'
+                 'bkpt={number="4",type="read watchpoint",disp="keep",enabled="y",'
+                 'what="n",original-location="n"}'
+                 ']}')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        entries = self.controller.get_breakpoints()
+
+        self.assertEqual(entries, [
+            {'number': 1, 'enabled': True, 'watchpoint': False,
+             'file': 'simple.c', 'line': 5, 'condition': None},
+            {'number': 2, 'enabled': False, 'watchpoint': False,
+             'file': 'simple.c', 'line': 9, 'condition': 'i > 5'},
+            {'number': 3, 'enabled': True, 'watchpoint': True,
+             'expression': 'p', 'watch_type': 'write'},
+            {'number': 4, 'enabled': True, 'watchpoint': True,
+             'expression': 'n', 'watch_type': 'read'},
+        ])
+        mock_send_mi.assert_called_with("-break-list")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_breakpoints_empty_table(self, mock_send_mi):
+        """An empty breakpoint table yields no entries."""
+        mock_send_mi.return_value = ('^', 'done,BreakpointTable={nr_rows="0",body=[]}')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        self.assertEqual(self.controller.get_breakpoints(), [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_breakpoint_condition(self, mock_send_mi):
+        """Conditions are set and cleared with GDB's own command."""
+        mock_send_mi.return_value = ('^', 'done')
+
+        self.assertTrue(self.controller.set_breakpoint_condition(2, 'i == 5'))
+        mock_send_mi.assert_called_with("condition 2 i == 5")
+
+        # An empty condition removes it
+        self.assertTrue(self.controller.set_breakpoint_condition(2, ''))
+        mock_send_mi.assert_called_with("condition 2")
+
+        self.assertTrue(self.controller.set_breakpoint_condition(2, None))
+        mock_send_mi.assert_called_with("condition 2")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_breakpoint_condition_rejected(self, mock_send_mi):
+        """A condition GDB rejects is reported as a failure."""
+        mock_send_mi.return_value = ('^', 'error,msg="No symbol \\"junk\\""')
+
+        self.assertFalse(self.controller.set_breakpoint_condition(2, 'junk'))
+
+    @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_variable_children(self, mock_send_mi):
         """Children come from a varobj that is created and then deleted."""
         self.controller.gdb_process = Mock()

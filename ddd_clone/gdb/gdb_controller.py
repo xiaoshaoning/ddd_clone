@@ -326,6 +326,31 @@ class GDBController(QObject):
         """Disable a breakpoint, identified by GDB's breakpoint number."""
         return self.send_command(f"-break-disable {breakpoint_number}")
 
+    def set_breakpoint_condition(self, breakpoint_number: int, condition: Optional[str]) -> bool:
+        """
+        Set a breakpoint's condition, or clear it when condition is empty.
+
+        GDB has no MI command for this. Its console `condition` command takes
+        the same number and leaves it unchanged, unlike re-inserting.
+
+        Args:
+            breakpoint_number: GDB's breakpoint number
+            condition: Condition expression, or None/'' to remove the condition
+
+        Returns:
+            bool: True if GDB accepted the condition
+        """
+        condition = (condition or '').strip()
+        command = f"condition {breakpoint_number}"
+        if condition:
+            command += f" {condition}"
+
+        try:
+            result_type, content = self.send_mi_command_sync(command)
+        except GDBError:
+            return False
+        return result_type == '^' and content.startswith('done')
+
     def delete_breakpoint(self, breakpoint_number: int) -> bool:
         """
         Delete a breakpoint.
@@ -337,6 +362,66 @@ class GDBController(QObject):
             bool: True if the delete command was sent successfully
         """
         return self.send_command(f"-break-delete {breakpoint_number}")
+
+    # GDB's breakpoint type string for each watchpoint kind it reports
+    _WATCHPOINT_TYPES = {
+        'hw watchpoint': 'write',
+        'read watchpoint': 'read',
+        'acc watchpoint': 'access',
+    }
+
+    def get_breakpoints(self) -> List[Dict[str, Any]]:
+        """
+        List the breakpoints GDB currently has, watchpoints included.
+
+        Returns:
+            List of dicts, one per breakpoint:
+                number      GDB's breakpoint number; the identity to use
+                enabled     whether GDB has it enabled
+                watchpoint  True for watchpoints, False for breakpoints
+                expression  watched expression          (watchpoints)
+                watch_type  "write", "read" or "access" (watchpoints)
+                file, line, condition   location and condition (breakpoints)
+        """
+        if not self.gdb_process or self.gdb_process.poll() is not None:
+            return []
+
+        try:
+            result_type, content = self.send_mi_command_sync("-break-list")
+        except GDBError:
+            return []
+        if result_type != '^' or not content.startswith('done'):
+            return []
+
+        # Format: body=[bkpt={number="1",type="breakpoint",...},bkpt={...}]
+        entries = []
+        for entry in re.findall(r'bkpt=\{([^}]*)\}', content):
+            fields = dict(re.findall(r'(\w[\w-]*)="(' + _MI_STRING + r')"', entry))
+            try:
+                number = int(fields['number'])
+            except (KeyError, ValueError):
+                continue
+
+            watch_type = self._WATCHPOINT_TYPES.get(fields.get('type', ''))
+            if watch_type is not None:
+                entries.append({
+                    'number': number,
+                    'enabled': fields.get('enabled') == 'y',
+                    'watchpoint': True,
+                    'expression': _unescape_mi_string(fields.get('what', '')),
+                    'watch_type': watch_type,
+                })
+            else:
+                line = fields.get('line', '')
+                entries.append({
+                    'number': number,
+                    'enabled': fields.get('enabled') == 'y',
+                    'watchpoint': False,
+                    'file': _unescape_mi_string(fields.get('file', '')),
+                    'line': int(line) if line.isdigit() else 0,
+                    'condition': _unescape_mi_string(fields['cond']) if 'cond' in fields else None,
+                })
+        return entries
 
     def set_watchpoint(self, expression: str, watch_type: str = "write") -> Optional[int]:
         """

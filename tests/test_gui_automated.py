@@ -161,8 +161,8 @@ def test_breakpoint_manager_gui(qtbot):
     assert bps[0].line == 10
     assert bps[0].condition == "i > 5"
 
-    # Test removing breakpoint
-    result = manager.remove_breakpoint(bp.breakpoint_id)
+    # Test removing breakpoint, addressed by GDB's number
+    result = manager.remove_breakpoint(bp.gdb_number)
     assert result is True
     assert len(manager.get_breakpoints()) == 0
 
