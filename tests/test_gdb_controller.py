@@ -318,7 +318,22 @@ class TestGDBController(unittest.TestCase):
 
         result = self.controller.read_memory(0x1000, 3)
         self.assertEqual(result, b'ABC')
-        mock_send_mi.assert_called_with("-data-read-memory 0x1000 x 1 3")
+        # ADDR FORMAT WORD-SIZE NR-ROWS NR-COLS
+        mock_send_mi.assert_called_with("-data-read-memory 0x1000 x 1 1 16")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_read_memory_concatenates_rows(self, mock_send_mi):
+        """Every row GDB returns contributes bytes."""
+        mock_send_mi.return_value = (
+            '^', 'done,addr="0x1000",nr-bytes="4",memory=['
+                 '{addr="0x1000",data=["0x41","0x42"]},'
+                 '{addr="0x1002",data=["0x43","0x44"]}]')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        result = self.controller.read_memory(0x1000, 4, columns=2)
+        self.assertEqual(result, b'ABCD')
+        mock_send_mi.assert_called_with("-data-read-memory 0x1000 x 1 2 2")
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_read_memory_invalid_hex(self, mock_send_mi):

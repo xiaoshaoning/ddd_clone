@@ -424,3 +424,25 @@ def test_struct_expansion_in_variables_tree(qtbot):
     assert item.child(0).text(0) == 'x'
     assert item.child(1).text(1) == '2'
     assert item.child(1).text(2) == 'int'
+
+
+def test_memory_tab_and_display(qtbot):
+    """The Memory tab reads memory for an address such as a register value."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.read_memory.return_value = b'\x41\x42'
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    assert window.tab_widget.indexOf(window.memory_viewer) != -1
+
+    window._display_memory('0x1000')
+    assert window.tab_widget.currentWidget() is window.memory_viewer
+    mock_gdb.read_memory.assert_called_once_with(0x1000, 256)
+    assert '41 42' in window.memory_viewer.dump.toPlainText()
+
+    # A register without a value is ignored
+    mock_gdb.read_memory.reset_mock()
+    window._display_memory('N/A')
+    mock_gdb.read_memory.assert_not_called()

@@ -695,13 +695,14 @@ class GDBController(QObject):
             })
         return children
 
-    def read_memory(self, address: int, size: int = 256) -> Optional[bytes]:
+    def read_memory(self, address: int, size: int = 256, columns: int = 16) -> Optional[bytes]:
         """
-        Read memory from address.
+        Read memory from an address.
 
         Args:
             address: Starting address
             size: Number of bytes to read
+            columns: Bytes per row, as GDB reports them
 
         Returns:
             Bytes read, or None if failed
@@ -709,33 +710,30 @@ class GDBController(QObject):
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return None
 
+        # -data-read-memory takes ADDR FORMAT WORD-SIZE NR-ROWS NR-COLS, so the
+        # request has to be expressed as a grid of bytes.
+        rows = max(1, -(-size // columns))
         try:
-            response = self.send_mi_command_sync(f"-data-read-memory 0x{address:x} x 1 {size}")
+            response = self.send_mi_command_sync(
+                f"-data-read-memory 0x{address:x} x 1 {rows} {columns}")
             result_type, content = response
             if result_type != '^' or not content.startswith('done'):
                 return None
         except GDBError:
             return None
 
-        # Parse memory data from response
-        # Format: ^done,memory=[{addr="0x...",data=["0x00","0x01",...]},...]
-        match = re.search(r'data=\[([^\]]*)\]', content)
-        if not match:
-            return None
-
-        data_str = match.group(1)
-        # Parse hex values: "0x00","0x01",...
-        hex_values = re.findall(r'"([^"]*)"', data_str)
-        bytes_list = []
-        for hex_val in hex_values:
-            if hex_val.startswith('0x'):
+        # Format: memory=[{addr="0x...",data=["0x00",...]},{addr="0x...",data=[...]}]
+        # One entry per row, so every row's data has to be concatenated.
+        data = bytearray()
+        for row in re.findall(r'data=\[([^\]]*)\]', content):
+            for hex_value in re.findall(r'"([^"]*)"', row):
                 try:
-                    bytes_list.append(int(hex_val, 16))
+                    data.append(int(hex_value, 16))
                 except ValueError:
                     # Invalid hex value, skip this byte
                     continue
 
-        return bytes(bytes_list)
+        return bytes(data[:size])
 
     def shutdown(self) -> None:
         """Shutdown GDB process and stop the reader thread."""

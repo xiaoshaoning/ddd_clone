@@ -18,6 +18,7 @@ from ..gdb.gdb_controller import GDBController
 from .source_viewer import SourceViewer
 from .breakpoint_manager import BreakpointManager
 from .variable_inspector import VariableInspector
+from .memory_viewer import MemoryViewer
 
 
 class MainWindow(QMainWindow):
@@ -99,6 +100,7 @@ class MainWindow(QMainWindow):
 
         # Tab widget for different debug views
         tab_widget = QTabWidget()
+        self.tab_widget = tab_widget
         splitter.addWidget(tab_widget)
 
         # Variables tab
@@ -146,6 +148,10 @@ class MainWindow(QMainWindow):
         self.call_stack_tree.setHeaderLabels(["Function", "File", "Line"])
         self.call_stack_tree.setFont(QFont("Arial", 18))  # Larger font
         tab_widget.addTab(self.call_stack_tree, "Call Stack")
+
+        # Memory tab
+        self.memory_viewer = MemoryViewer(self.gdb_controller)
+        tab_widget.addTab(self.memory_viewer, "Memory")
 
         # GDB output area
         gdb_output_widget = QWidget()
@@ -464,6 +470,7 @@ class MainWindow(QMainWindow):
             self.variable_inspector.update_watch_expressions()
             self._update_watch_tree()
             self._update_watchpoints_tree()
+            self.memory_viewer.refresh()
 
     def _resolve_source_path(self, state_info: dict) -> Optional[str]:
         """Find a path on disk for the file the program stopped in, or None."""
@@ -1058,12 +1065,24 @@ class MainWindow(QMainWindow):
         copy_number_action.triggered.connect(lambda: self._copy_to_clipboard(item.text(1)))
         menu.addAction(copy_number_action)
 
+        # Display memory action
+        display_memory_action = QAction("Display Memory", self.registers_tree)
+        display_memory_action.triggered.connect(lambda: self._display_memory(item.text(2)))
+        menu.addAction(display_memory_action)
+
         # Show the menu at the cursor position
         menu.exec_(self.registers_tree.viewport().mapToGlobal(position))
 
     def _copy_to_clipboard(self, text: str) -> None:
         """Copy text to the clipboard."""
         QApplication.clipboard().setText(text)
+
+    def _display_memory(self, address: str) -> None:
+        """Show memory at an address, e.g. from the registers tree."""
+        if not address or address == "N/A":
+            return
+        self.tab_widget.setCurrentWidget(self.memory_viewer)
+        self.memory_viewer.set_address(address)
 
     def save_breakpoints(self) -> None:
         """Save breakpoints and watchpoints to a file."""
