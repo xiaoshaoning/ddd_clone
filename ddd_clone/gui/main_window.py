@@ -105,12 +105,16 @@ class MainWindow(QMainWindow):
         self.variables_tree = QTreeWidget()
         self.variables_tree.setHeaderLabels(["Name", "Value", "Type"])
         self.variables_tree.setFont(QFont("Arial", 18))  # Larger font
+        self.variables_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.variables_tree.customContextMenuRequested.connect(self._show_variables_context_menu)
         tab_widget.addTab(self.variables_tree, "Variables")
 
         # Watch expressions tab
         self.watch_tree = QTreeWidget()
         self.watch_tree.setHeaderLabels(["Expression", "Value"])
         self.watch_tree.setFont(QFont("Arial", 18))  # Larger font
+        self.watch_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.watch_tree.customContextMenuRequested.connect(self._show_watch_tree_context_menu)
         tab_widget.addTab(self.watch_tree, "Watch")
 
         # Breakpoints tab
@@ -123,7 +127,7 @@ class MainWindow(QMainWindow):
 
         # Watchpoints tab
         self.watchpoints_tree = QTreeWidget()
-        self.watchpoints_tree.setHeaderLabels(["Expression", "Type", "Enabled"])
+        self.watchpoints_tree.setHeaderLabels(["Expression", "Type", "Enabled", "Value"])
         self.watchpoints_tree.setFont(QFont("Arial", 18))  # Larger font
         self.watchpoints_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.watchpoints_tree.customContextMenuRequested.connect(self._show_watchpoints_context_menu)
@@ -358,6 +362,10 @@ class MainWindow(QMainWindow):
         self.breakpoint_manager.watchpoint_removed.connect(self._update_watchpoints_tree)
         self.breakpoint_manager.watchpoint_updated.connect(self._update_watchpoints_tree)
 
+        # Connect variable inspector signals
+        self.variable_inspector.watch_expression_added.connect(self._update_watch_tree)
+        self.variable_inspector.watch_expression_removed.connect(self._update_watch_tree)
+
         # Connect call stack navigation
         self.call_stack_tree.itemDoubleClicked.connect(self._on_call_stack_frame_activated)
 
@@ -450,11 +458,14 @@ class MainWindow(QMainWindow):
             else:
                 self.current_file_label.setText("No file loaded")
 
-        # Update registers, variables and call stack when program is stopped
+        # Update all debug views when program is stopped
         if state == 'stopped':
             self._update_registers_tree()
             self._update_variables_tree()
             self._update_call_stack_tree()
+            self.variable_inspector.update_watch_expressions()
+            self._update_watch_tree()
+            self._update_watchpoints_tree()
 
     def _append_console_output(self, text: str) -> None:
         """Append decoded GDB console text to the output area."""
@@ -555,16 +566,61 @@ class MainWindow(QMainWindow):
                 self.source_viewer.remove_breakpoint_marker(breakpoint.line)
 
     def _update_watchpoints_tree(self) -> None:
-        """Update the watchpoints tree with current watchpoints."""
+        """Update the watchpoints tree with current watchpoints and values."""
         self.watchpoints_tree.clear()
-        watchpoints = self.breakpoint_manager.get_watchpoints()
-        for wp in watchpoints:
+        # Only ask GDB for a value while the program is stopped; evaluating a
+        # running program would block or fail.
+        stopped = self.gdb_controller.current_state.get('state') == 'stopped'
+        for wp in self.breakpoint_manager.get_watchpoints():
             item = QTreeWidgetItem(self.watchpoints_tree)
             item.setText(0, wp.expression)
             item.setText(1, wp.watch_type)
             item.setText(2, "Yes" if wp.enabled else "No")
+            if stopped:
+                value = self.gdb_controller.evaluate_expression(wp.expression)
+                item.setText(3, value if value is not None else "N/A")
             # Store watchpoint ID in the item
             item.setData(0, Qt.UserRole, wp.watchpoint_id)
+
+    def _update_watch_tree(self) -> None:
+        """Update the Watch tab with the current watch expressions."""
+        self.watch_tree.clear()
+        for expression, value in self.variable_inspector.get_watch_expressions().items():
+            item = QTreeWidgetItem(self.watch_tree)
+            item.setText(0, expression)
+            item.setText(1, value)
+            item.setData(0, Qt.UserRole, expression)
+
+    def _show_variables_context_menu(self, position: Any) -> None:
+        """Show context menu for the variables tree."""
+        item = self.variables_tree.itemAt(position)
+        if not item:
+            return
+
+        name = item.data(0, Qt.UserRole)
+        if not name:
+            return
+
+        menu = QMenu(self.variables_tree)
+        watch_action = QAction("Add to Watch", self.variables_tree)
+        watch_action.triggered.connect(
+            lambda: self.variable_inspector.add_watch_expression(name))
+        menu.addAction(watch_action)
+        menu.exec_(self.variables_tree.viewport().mapToGlobal(position))
+
+    def _show_watch_tree_context_menu(self, position: Any) -> None:
+        """Show context menu for the Watch tab."""
+        item = self.watch_tree.itemAt(position)
+        if not item:
+            return
+
+        expression = item.data(0, Qt.UserRole)
+        menu = QMenu(self.watch_tree)
+        remove_action = QAction("Remove", self.watch_tree)
+        remove_action.triggered.connect(
+            lambda: self.variable_inspector.remove_watch_expression(expression))
+        menu.addAction(remove_action)
+        menu.exec_(self.watch_tree.viewport().mapToGlobal(position))
 
     def _update_registers_tree(self) -> None:
         """Update the registers tree with current register values."""
@@ -863,37 +919,26 @@ class MainWindow(QMainWindow):
         if not item:
             return
 
-        menu = QMenu(self.watchpoints_tree)
-
-        # Get watchpoint ID from item data (stored in first column)
-        expression = item.text(0)
-        watchpoint_type = item.text(1)
-
-        # Find the watchpoint by expression and type
-        watchpoint_id = None
-        for wp_id, wp in self.breakpoint_manager.get_watchpoints().items():
-            if wp.expression == expression and wp.watch_type == watchpoint_type:
-                watchpoint_id = wp_id
-                break
-
-        if watchpoint_id is None:
+        watchpoint = self.breakpoint_manager.get_watchpoint(item.data(0, Qt.UserRole))
+        if not watchpoint:
             return
+
+        menu = QMenu(self.watchpoints_tree)
 
         # Edit action
         edit_action = QAction("Edit", self.watchpoints_tree)
-        edit_action.triggered.connect(lambda: self._edit_watchpoint(watchpoint_id))
+        edit_action.triggered.connect(lambda: self._edit_watchpoint(watchpoint.watchpoint_id))
         menu.addAction(edit_action)
 
         # Delete action
         delete_action = QAction("Delete", self.watchpoints_tree)
-        delete_action.triggered.connect(lambda: self._delete_watchpoint(watchpoint_id))
+        delete_action.triggered.connect(lambda: self._delete_watchpoint(watchpoint.watchpoint_id))
         menu.addAction(delete_action)
 
         # Toggle action
-        enabled = item.text(2) == "Yes"
-        toggle_text = "Disable" if enabled else "Enable"
+        toggle_text = "Disable" if watchpoint.enabled else "Enable"
         toggle_action = QAction(toggle_text, self.watchpoints_tree)
-        toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint_id))
+        toggle_action.triggered.connect(lambda: self._toggle_watchpoint(watchpoint.watchpoint_id))
         menu.addAction(toggle_action)
 
         # Show the menu at the cursor position

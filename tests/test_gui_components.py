@@ -299,3 +299,46 @@ def test_breakpoints_tree_and_delete(qtbot):
     window._delete_breakpoint(bp.breakpoint_id)
     mock_gdb.delete_breakpoint.assert_called_once_with(4)
     assert window.breakpoints_tree.topLevelItemCount() == 0
+
+
+def test_watch_tree_population(qtbot):
+    """The Watch tab lists expressions and their values."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.evaluate_expression.return_value = '42'
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    # Adding a watch expression refreshes the tree via the signal
+    assert window.variable_inspector.add_watch_expression('my_var') is True
+
+    assert window.watch_tree.topLevelItemCount() == 1
+    item = window.watch_tree.topLevelItem(0)
+    assert item.text(0) == 'my_var'
+    assert item.text(1) == '42'
+
+    # Removing it clears the row
+    window.variable_inspector.remove_watch_expression('my_var')
+    assert window.watch_tree.topLevelItemCount() == 0
+
+
+def test_watchpoints_tree_shows_value(qtbot):
+    """The Watchpoints tab shows a live value and records GDB's number."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.set_watchpoint = Mock(return_value=2)
+    mock_gdb.evaluate_expression = Mock(return_value='7')
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+
+    wp = window.breakpoint_manager.add_watchpoint('x', 'write')
+    assert wp is not None
+    assert wp.gdb_number == 2
+
+    window._update_watchpoints_tree()
+    item = window.watchpoints_tree.topLevelItem(0)
+    assert item.text(0) == 'x'
+    assert item.text(2) == 'Yes'
+    assert item.text(3) == '7'

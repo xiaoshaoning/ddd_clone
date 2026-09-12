@@ -300,41 +300,40 @@ class TestGDBController(unittest.TestCase):
         # Should skip invalid hex and return valid bytes
         self.assertEqual(result, b'B')
 
-    def test_set_watchpoint(self):
-        """Test setting watchpoints."""
-        self.controller.send_command = Mock(return_value=True)
-        self.controller.gdb_process = Mock()
-        self.controller.gdb_process.poll.return_value = None
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_watchpoint(self, mock_send_mi):
+        """Setting watchpoints returns GDB's watchpoint number."""
+        # A write watchpoint is the bare command: GDB has no -w flag
+        mock_send_mi.return_value = ('^', 'done,wpt={number="2",exp="x"}')
+        self.assertEqual(self.controller.set_watchpoint("x"), 2)
+        mock_send_mi.assert_called_with("-break-watch x")
 
-        # Test setting write watchpoint (default)
-        result = self.controller.set_watchpoint("x")
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-watch -w x")
+        # Read watchpoint
+        mock_send_mi.return_value = ('^', 'done,hw-rwpt={number="3",exp="y"}')
+        self.assertEqual(self.controller.set_watchpoint("y", "read"), 3)
+        mock_send_mi.assert_called_with("-break-watch -r y")
 
-        # Test setting read watchpoint
-        result = self.controller.set_watchpoint("y", "read")
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-watch -r y")
+        # Access watchpoint
+        mock_send_mi.return_value = ('^', 'done,hw-awpt={number="4",exp="z"}')
+        self.assertEqual(self.controller.set_watchpoint("z", "access"), 4)
+        mock_send_mi.assert_called_with("-break-watch -a z")
 
-        # Test setting access watchpoint
-        result = self.controller.set_watchpoint("z", "access")
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-watch -a z")
+        # Invalid watch type defaults to write
+        mock_send_mi.return_value = ('^', 'done,wpt={number="5",exp="w"}')
+        self.assertEqual(self.controller.set_watchpoint("w", "invalid"), 5)
+        mock_send_mi.assert_called_with("-break-watch w")
 
-        # Test with invalid watch type (should default to write)
-        result = self.controller.set_watchpoint("w", "invalid")
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-watch -w w")
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_watchpoint_rejected(self, mock_send_mi):
+        """A watchpoint GDB rejects yields no number."""
+        mock_send_mi.return_value = ('^', 'error,msg="No symbol x in current context"')
+        self.assertIsNone(self.controller.set_watchpoint("x"))
 
     def test_set_watchpoint_no_process(self):
         """Test setting watchpoint when no GDB process."""
         self.controller.gdb_process = None
-        self.controller.send_command = Mock(return_value=False)
-
         result = self.controller.set_watchpoint("x")
         self.assertFalse(result)
-        # send_command should still be called and return False
-        self.controller.send_command.assert_called_with("-break-watch -w x")
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_registers(self, mock_send_mi):

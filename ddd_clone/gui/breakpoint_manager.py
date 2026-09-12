@@ -41,10 +41,12 @@ class Watchpoint:
     Represents a single watchpoint.
     """
 
-    def __init__(self, watchpoint_id: int, expression: str, watch_type: str = "write"):
+    def __init__(self, watchpoint_id: int, expression: str, watch_type: str = "write",
+                 gdb_number: Optional[int] = None):
         self.watchpoint_id = watchpoint_id
         self.expression = expression
         self.watch_type = watch_type  # "write", "read", "access"
+        self.gdb_number = gdb_number  # GDB's own breakpoint number
         self.enabled = True
 
     def __str__(self):
@@ -326,11 +328,14 @@ class BreakpointManager(QObject):
                 # Create watchpoint
                 wp = Watchpoint(wp_id, expression, watch_type)
                 wp.enabled = enabled
-                self.watchpoints[wp_id] = wp
 
-                # Set in GDB if enabled
-                if enabled and self.gdb_controller:
-                    self.gdb_controller.set_watchpoint(expression, watch_type)
+                # Insert into GDB, then apply the saved disabled state
+                if self.gdb_controller:
+                    wp.gdb_number = self.gdb_controller.set_watchpoint(expression, watch_type)
+                    if wp.gdb_number is not None and not enabled:
+                        self.gdb_controller.disable_breakpoint(wp.gdb_number)
+
+                self.watchpoints[wp_id] = wp
 
             # Update next watchpoint ID
             if self.watchpoints:
@@ -395,16 +400,16 @@ class BreakpointManager(QObject):
         watchpoint_id = self.next_watchpoint_id
         self.next_watchpoint_id += 1
 
-        watchpoint = Watchpoint(watchpoint_id, expression, watch_type)
-
-        # Set watchpoint in GDB
-        if self.gdb_controller.set_watchpoint(expression, watch_type):
-            self.watchpoints[watchpoint_id] = watchpoint
-            self.watchpoint_added.emit(watchpoint)
-            return watchpoint
-        else:
-            # GDB failed to set the watchpoint - don't add it to our internal state
+        # Set watchpoint in GDB; it assigns the number we must use later
+        gdb_number = self.gdb_controller.set_watchpoint(expression, watch_type)
+        if gdb_number is None:
+            # GDB rejected the watchpoint - don't add it to our internal state
             return None
+
+        watchpoint = Watchpoint(watchpoint_id, expression, watch_type, gdb_number)
+        self.watchpoints[watchpoint_id] = watchpoint
+        self.watchpoint_added.emit(watchpoint)
+        return watchpoint
 
     def remove_watchpoint(self, watchpoint_id: int) -> bool:
         """
@@ -419,13 +424,16 @@ class BreakpointManager(QObject):
         if watchpoint_id not in self.watchpoints:
             return False
 
-        # Remove watchpoint from GDB - use breakpoint-delete command for watchpoints
-        if self.gdb_controller.delete_breakpoint(watchpoint_id):
-            del self.watchpoints[watchpoint_id]
-            self.watchpoint_removed.emit(watchpoint_id)
-            return True
+        watchpoint = self.watchpoints[watchpoint_id]
 
-        return False
+        # Watchpoints are breakpoints to GDB, addressed by its own number
+        if watchpoint.gdb_number is not None:
+            if not self.gdb_controller.delete_breakpoint(watchpoint.gdb_number):
+                return False
+
+        del self.watchpoints[watchpoint_id]
+        self.watchpoint_removed.emit(watchpoint_id)
+        return True
 
     def toggle_watchpoint(self, watchpoint_id: int) -> bool:
         """
@@ -441,16 +449,18 @@ class BreakpointManager(QObject):
             return False
 
         watchpoint = self.watchpoints[watchpoint_id]
-        watchpoint.enabled = not watchpoint.enabled
+        if watchpoint.gdb_number is None:
+            return False
 
-        # TODO: Implement enabling/disabling in GDB
-        # For now, we'll remove and re-add the watchpoint
+        # A watchpoint is a breakpoint to GDB, so it toggles in place.
         if watchpoint.enabled:
-            # Re-enable by re-adding
-            self.gdb_controller.set_watchpoint(watchpoint.expression, watchpoint.watch_type)
+            if not self.gdb_controller.disable_breakpoint(watchpoint.gdb_number):
+                return False
+            watchpoint.enabled = False
         else:
-            # Disable by removing
-            self.gdb_controller.delete_breakpoint(watchpoint_id)
+            if not self.gdb_controller.enable_breakpoint(watchpoint.gdb_number):
+                return False
+            watchpoint.enabled = True
 
         self.watchpoint_updated.emit(watchpoint)
         return True
@@ -473,22 +483,25 @@ class BreakpointManager(QObject):
         watchpoint = self.watchpoints[watchpoint_id]
         old_expression = watchpoint.expression
         old_type = watchpoint.watch_type
-        watchpoint.expression = expression
-        if watch_type is not None:
-            watchpoint.watch_type = watch_type
-
-        # Update watchpoint in GDB by removing and re-adding
-        self.gdb_controller.delete_breakpoint(watchpoint_id)
         new_type = watch_type if watch_type is not None else old_type
-        if self.gdb_controller.set_watchpoint(expression, new_type):
-            self.watchpoint_updated.emit(watchpoint)
-            return True
-        else:
-            # Restore old values if update failed
-            watchpoint.expression = old_expression
-            watchpoint.watch_type = old_type
-            self.gdb_controller.set_watchpoint(old_expression, old_type)
+
+        # GDB cannot change a watchpoint in place: drop and re-create.
+        if watchpoint.gdb_number is not None:
+            self.gdb_controller.delete_breakpoint(watchpoint.gdb_number)
+
+        gdb_number = self.gdb_controller.set_watchpoint(expression, new_type)
+        if gdb_number is None:
+            # Restore the old watchpoint
+            watchpoint.gdb_number = self.gdb_controller.set_watchpoint(old_expression, old_type)
             return False
+
+        watchpoint.expression = expression
+        watchpoint.watch_type = new_type
+        watchpoint.gdb_number = gdb_number
+        if not watchpoint.enabled:
+            self.gdb_controller.disable_breakpoint(gdb_number)
+        self.watchpoint_updated.emit(watchpoint)
+        return True
 
     def get_watchpoint(self, watchpoint_id: int) -> Optional[Watchpoint]:
         """

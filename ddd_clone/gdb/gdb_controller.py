@@ -319,43 +319,46 @@ class GDBController(QObject):
         """
         return self.send_command(f"-break-delete {breakpoint_number}")
 
-    def set_watchpoint(self, expression: str, watch_type: str = "write") -> bool:
+    def set_watchpoint(self, expression: str, watch_type: str = "write") -> Optional[int]:
         """
-        Set a watchpoint on an expression.
+        Set a watchpoint on an expression and wait for GDB to confirm it.
 
         Args:
             expression: Expression to watch (variable name, address, etc.)
             watch_type: Type of watchpoint - "write" (default), "read", "access"
 
         Returns:
-            bool: True if watchpoint was set successfully
+            GDB's watchpoint number, or None if GDB rejected the watchpoint
         """
         # Clean and validate inputs
         expression = expression.strip()
         if not expression:
-            return False
+            return None
 
         watch_type = watch_type.strip().lower()
-
-        # Validate watch_type
-        valid_types = {"write", "read", "access"}
-        if watch_type not in valid_types:
+        if watch_type not in ("write", "read", "access"):
             watch_type = "write"
 
-        # GDB/MI command: -break-watch [ -a | -r | -w ] expression
-        type_flag = {
-            "write": "-w",
-            "read": "-r",
-            "access": "-a"
-        }[watch_type]  # Now guaranteed to be valid
+        # GDB/MI spells the write watchpoint as the bare command; there is no
+        # -w flag, and passing one makes GDB reject the whole command.
+        flag = {"write": "", "read": "-r ", "access": "-a "}[watch_type]
 
         # Quote expression if it contains spaces and isn't already quoted
         quoted_expression = expression
         if ' ' in expression and not (expression.startswith('"') and expression.endswith('"')):
             quoted_expression = f'"{expression}"'
 
-        cmd = f"-break-watch {type_flag} {quoted_expression}"
-        return self.send_command(cmd)
+        try:
+            result_type, content = self.send_mi_command_sync(
+                f"-break-watch {flag}{quoted_expression}")
+        except GDBError:
+            return None
+        if result_type != '^' or not content.startswith('done'):
+            return None
+
+        # The result key varies: wpt, hw-rwpt, hw-awpt - all carry number
+        match = re.search(r'number="(\d+)"', content)
+        return int(match.group(1)) if match else None
 
     def get_registers(self) -> List[Dict[str, str]]:
         """

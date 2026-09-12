@@ -67,6 +67,7 @@ class TestBreakpointManager(unittest.TestCase):
         self.mock_gdb.delete_breakpoint.return_value = True
         self.mock_gdb.enable_breakpoint.return_value = True
         self.mock_gdb.disable_breakpoint.return_value = True
+        self.mock_gdb.set_watchpoint.return_value = 2
 
         self.manager = BreakpointManager(self.mock_gdb)
 
@@ -222,6 +223,41 @@ class TestBreakpointManager(unittest.TestCase):
         self.assertEqual(len(self.manager.breakpoints), 0)
         # GDB delete should be called twice
         self.assertEqual(self.mock_gdb.delete_breakpoint.call_count, 2)
+
+    def test_add_watchpoint_records_gdb_number(self):
+        """A watchpoint records GDB's number for later enable/delete."""
+        wp = self.manager.add_watchpoint("x", "write")
+
+        self.assertIsNotNone(wp)
+        self.mock_gdb.set_watchpoint.assert_called_once_with("x", "write")
+        self.assertEqual(wp.gdb_number, 2)
+
+    def test_add_watchpoint_failure(self):
+        """A watchpoint GDB rejects is not stored."""
+        self.mock_gdb.set_watchpoint.return_value = None
+
+        self.assertIsNone(self.manager.add_watchpoint("x"))
+        self.assertEqual(self.manager.get_watchpoints(), [])
+
+    def test_remove_watchpoint_uses_gdb_number(self):
+        """Removing a watchpoint addresses GDB's number, not our own id."""
+        wp = self.manager.add_watchpoint("x")
+
+        self.assertTrue(self.manager.remove_watchpoint(wp.watchpoint_id))
+        self.mock_gdb.delete_breakpoint.assert_called_once_with(2)
+        self.assertEqual(self.manager.get_watchpoints(), [])
+
+    def test_toggle_watchpoint_uses_gdb_number(self):
+        """Watchpoints toggle in place, like breakpoints."""
+        wp = self.manager.add_watchpoint("x")
+
+        self.assertTrue(self.manager.toggle_watchpoint(wp.watchpoint_id))
+        self.assertFalse(wp.enabled)
+        self.mock_gdb.disable_breakpoint.assert_called_once_with(2)
+
+        self.assertTrue(self.manager.toggle_watchpoint(wp.watchpoint_id))
+        self.assertTrue(wp.enabled)
+        self.mock_gdb.enable_breakpoint.assert_called_once_with(2)
 
 
 if __name__ == '__main__':
