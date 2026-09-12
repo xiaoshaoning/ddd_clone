@@ -3,12 +3,20 @@ Headless GUI debug session for DDD Clone.
 
 Runs the real PyQt5 app with QT_QPA_PLATFORM=offscreen (Qt's offscreen
 platform - the desktop-GUI equivalent of a headless browser), drives a real
-GDB session on the example program, and captures screenshots + a trace so the
-GUI behavior can be verified without a display.
+GDB session on the example program, and prints a trace of what happened.
+
+This is a manual harness. The asserted end-to-end net is
+tests/test_integration_headless.py; run that instead when you want a verdict.
+
+The screenshots are written to a temporary directory, not the repository.
+Note that they are layout-only: the offscreen platform on this machine has
+no font directory, so text is never drawn and the images cannot be compared
+against a baseline.
 """
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'  # render without a display
@@ -22,6 +30,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, 'examples', 'simple_program.c')
 EXE = os.path.join(ROOT, 'examples', 'simple_program_g.exe')  # fresh debug build
 LINE = 22  # int main()
+SHOT_DIR = tempfile.mkdtemp(prefix='ddd_shots_')
 
 # Build the debug executable if it is missing (keeps the repo binary-free)
 if not os.path.exists(EXE):
@@ -48,9 +57,8 @@ def wait_state(state, timeout=15.0):
 
 
 def snapshot(label):
-    pix = window.grab()
-    path = os.path.join(ROOT, f'shot_{label}.png')
-    pix.save(path)
+    path = os.path.join(SHOT_DIR, f'{label}.png')
+    window.grab().save(path)
     print(f'[shot] saved {path}')
 
 
