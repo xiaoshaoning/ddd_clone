@@ -748,63 +748,58 @@ class MainWindow(QMainWindow):
         """Update the variables tree with current variable values."""
         self.variables_tree.clear()
         self.variable_inspector.update_variables()
-        variables = self.variable_inspector.get_local_variables()
 
-        for var in variables:
-            item = QTreeWidgetItem(self.variables_tree)
-            name = var.name or 'N/A'
-            value = var.value or ''
-            var_type = var.type or 'N/A'
+        for variable in self.variable_inspector.get_local_variables():
+            self._add_variable_item(self.variables_tree, variable)
 
-            item.setText(0, name)
+    def _add_variable_item(self, parent, variable) -> QTreeWidgetItem:
+        """
+        Add a row for a variable, expandable when it has children to load.
 
-            # Empty values mean composite types (arrays, structs)
-            if not value:
-                if VariableInspector._is_array_type(var_type):
-                    item.setText(1, "array")
-                else:
-                    item.setText(1, var_type)
-            else:
-                item.setText(1, value)
+        Args:
+            parent: QTreeWidget or QTreeWidgetItem to add the row to
+            variable: Variable to display
 
-            item.setText(2, var_type)
-            item.setData(0, Qt.UserRole, name)
+        Returns:
+            The row that was added
+        """
+        item = QTreeWidgetItem(parent)
+        value = variable.value or ''
+        var_type = variable.type or 'N/A'
 
-            # Show an expand indicator for the composite types we can expand
-            if VariableInspector._is_array_type(var_type) or \
-                    VariableInspector._is_struct_type(var_type):
-                item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        item.setText(0, variable.name or 'N/A')
+        if value:
+            item.setText(1, value)
+        elif VariableInspector._is_array_type(var_type):
+            # A composite GDB did not expand is shown by its type instead
+            item.setText(1, "array")
+        else:
+            item.setText(1, var_type)
+        item.setText(2, var_type)
+
+        # The path is the expression that reaches this row, not its label:
+        # children are asked for by path, and so is "Add to Watch".
+        item.setData(0, Qt.UserRole, variable.path)
+        if VariableInspector._is_expandable(var_type):
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        return item
 
     def _on_variable_expanded(self, item: QTreeWidgetItem) -> None:
         """Load and display children of an expanded variable."""
-        name = item.data(0, Qt.UserRole)
-        if not name:
+        path = item.data(0, Qt.UserRole)
+        if not path:
             return
-        self.variable_inspector.expand_variable(name)
-        var = self._find_inspector_variable(name)
-        if not var:
-            return
+
         item.takeChildren()  # clear stale children on re-expand
-        for child in var.children:
-            child_item = QTreeWidgetItem(item)
-            child_item.setText(0, child.name)
-            child_item.setText(1, child.value or "")
-            child_item.setText(2, child.type or "")
-            child_item.setData(0, Qt.UserRole, child.name)
+        for child in self.variable_inspector.expand_variable(path):
+            self._add_variable_item(item, child)
 
     def _on_variable_collapsed(self, item: QTreeWidgetItem) -> None:
         """Collapse a variable and remove its displayed children."""
-        name = item.data(0, Qt.UserRole)
-        if name:
-            self.variable_inspector.collapse_variable(name)
+        path = item.data(0, Qt.UserRole)
+        if path:
+            self.variable_inspector.collapse_variable(path)
             item.takeChildren()
-
-    def _find_inspector_variable(self, name: str):
-        """Find a parsed variable by name in the inspector."""
-        for var in self.variable_inspector.get_local_variables():
-            if var.name == name:
-                return var
-        return None
 
     def add_watchpoint_dialog(self) -> None:
         """Show modal dialog to add a new watchpoint."""

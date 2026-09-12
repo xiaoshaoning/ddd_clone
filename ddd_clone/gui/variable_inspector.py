@@ -12,8 +12,13 @@ class Variable:
     Represents a variable in the debugger.
     """
 
-    def __init__(self, name: str, value: str, var_type: str, address: Optional[str] = None):
+    def __init__(self, name: str, value: str, var_type: str, address: Optional[str] = None,
+                 path: Optional[str] = None):
         self.name = name
+        # The expression that reaches this variable, which is how it is asked
+        # for again: 'p', 'p.lo', 'arr[0]'. Children of children need the full
+        # path, not the display name.
+        self.path = path if path is not None else name
         self.value = value
         self.type = var_type
         self.address = address
@@ -55,6 +60,12 @@ class VariableInspector(QObject):
     def _is_struct_type(var_type: str) -> bool:
         """Check if type string represents a struct, union or class."""
         return var_type.startswith(('struct ', 'union ', 'class '))
+
+    @staticmethod
+    def _is_expandable(var_type: str) -> bool:
+        """Check if children can be loaded for a type."""
+        return VariableInspector._is_array_type(var_type) or \
+            VariableInspector._is_struct_type(var_type)
 
     @staticmethod
     def _is_array_type(var_type: str) -> bool:
@@ -251,25 +262,24 @@ class VariableInspector(QObject):
 
         return None
 
-    def expand_variable(self, variable_name: str) -> bool:
+    def expand_variable(self, expression: str) -> List[Variable]:
         """
-        Expand a variable to show its children (for structs, arrays, etc.).
+        Load the children of a variable, once.
 
         Args:
-            variable_name: Name of the variable to expand
+            expression: Path to the variable, e.g. 'p', 'b.lo' or 'arr[0]'
 
         Returns:
-            bool: True if variable was expanded successfully
+            The variable's children, empty if it is unknown or has none
         """
-        # Find the variable
-        variable = self._find_variable(variable_name)
-        if variable and not variable.expanded:
-            variable.expanded = True
-            # Load children from GDB for arrays and structs
-            self._load_variable_children(variable)
-            return True
+        variable = self.find_variable(expression)
+        if variable is None:
+            return []
 
-        return False
+        if not variable.expanded:
+            variable.expanded = True
+            self._load_variable_children(variable)
+        return variable.children
 
     def _load_variable_children(self, variable: 'Variable') -> None:
         """
@@ -295,9 +305,10 @@ class VariableInspector(QObject):
         # Clear any existing children
         variable.children.clear()
 
-        for field in self.gdb_controller.get_variable_children(variable.name):
-            variable.children.append(
-                Variable(field['name'], field['value'], field['type']))
+        for field in self.gdb_controller.get_variable_children(variable.path):
+            variable.children.append(Variable(
+                field['name'], field['value'], field['type'],
+                path=f"{variable.path}.{field['name']}"))
 
     def _load_array_elements(self, variable: 'Variable') -> None:
         """
@@ -315,52 +326,57 @@ class VariableInspector(QObject):
 
         for i in range(size):
             # Evaluate array element
-            expr = f"{variable.name}[{i}]"
+            expr = f"{variable.path}[{i}]"
             value = self.gdb_controller.evaluate_expression(expr)
             if value is None:
                 value = 'unknown'
 
             # Create child variable
-            child_name = f"[{i}]"
             child_type = self._get_array_element_type(variable.type)
-            child_var = Variable(child_name, value, child_type)
+            child_var = Variable(f"[{i}]", value, child_type, path=expr)
             variable.children.append(child_var)
 
-    def collapse_variable(self, variable_name: str) -> bool:
+    def collapse_variable(self, expression: str) -> bool:
         """
         Collapse a variable to hide its children.
 
         Args:
-            variable_name: Name of the variable to collapse
+            expression: Path to the variable, e.g. 'p', 'b.lo' or 'arr[0]'
 
         Returns:
             bool: True if variable was collapsed successfully
         """
-        variable = self._find_variable(variable_name)
+        variable = self.find_variable(expression)
         if variable and variable.expanded:
             variable.expanded = False
             return True
 
         return False
 
-    def _find_variable(self, variable_name: str) -> Optional[Variable]:
+    def find_variable(self, expression: str) -> Optional[Variable]:
         """
-        Find a variable by name.
+        Find a variable, at any depth, by the expression that reaches it.
 
         Args:
-            variable_name: Name of the variable to find
+            expression: Path such as 'p', 'b.lo' or 'arr[0]'
 
         Returns:
             Variable object if found, None otherwise
         """
-        # Search in local variables
-        for var in self.local_variables:
-            if var.name == variable_name:
-                return var
+        for variable in self.local_variables + self.global_variables:
+            found = self._find_variable_in(variable, expression)
+            if found:
+                return found
+        return None
 
-        # Search in global variables
-        for var in self.global_variables:
-            if var.name == variable_name:
-                return var
+    @classmethod
+    def _find_variable_in(cls, variable: Variable, expression: str) -> Optional[Variable]:
+        """Find a variable or one of its descendants by path."""
+        if variable.path == expression:
+            return variable
 
+        for child in variable.children:
+            found = cls._find_variable_in(child, expression)
+            if found:
+                return found
         return None

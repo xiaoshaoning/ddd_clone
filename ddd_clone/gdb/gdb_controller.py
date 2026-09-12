@@ -32,6 +32,11 @@ _MI_ESCAPES = {
 # the match.
 _MI_STRING = r'(?:[^"\\]|\\.)*'
 
+# A varobj child entry, child={...}. Field values are MI C-strings that may
+# themselves contain braces (an aggregate reads value="{...}"), so a plain
+# [^}]* would stop early and lose every field after the value.
+_CHILD_ENTRY = r'child=\{((?:"(?:[^"\\]|\\.)*"|[^}])*)\}'
+
 
 def _unescape_mi_string(text: str) -> str:
     """Decode the C-string escapes GDB/MI uses inside stream records."""
@@ -777,7 +782,7 @@ class GDBController(QObject):
             return []
 
         children = []
-        for entry in re.findall(r'child=\{([^}]*)\}', content):
+        for entry in re.findall(_CHILD_ENTRY, content):
             fields = dict(re.findall(r'(\w[\w-]*)="(' + _MI_STRING + r')"', entry))
             children.append({
                 # 'exp' is the field name as written in the source

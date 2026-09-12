@@ -21,6 +21,7 @@ class TestVariable(unittest.TestCase):
         var = Variable("x", "42", "int", "0x7ffe1234")
 
         self.assertEqual(var.name, "x")
+        self.assertEqual(var.path, "x")  # a top-level path is its name
         self.assertEqual(var.value, "42")
         self.assertEqual(var.type, "int")
         self.assertEqual(var.address, "0x7ffe1234")
@@ -172,23 +173,25 @@ class TestVariableInspector(unittest.TestCase):
         self.assertIsNone(value)
 
     def test_expand_variable(self):
-        """Test expanding variables."""
-        var = Variable("struct_var", "{...}", "struct")
+        """Expanding returns the children, and loads them only once."""
+        self.mock_gdb.get_variable_children.return_value = [
+            {'name': 'x', 'value': '1', 'type': 'int', 'numchild': '0'},
+        ]
+        var = Variable("p", "{x = 1}", "struct Point")
         self.inspector.local_variables = [var]
 
-        # Expand variable
-        result = self.inspector.expand_variable("struct_var")
+        children = self.inspector.expand_variable("p")
 
-        # Verify expansion
-        self.assertTrue(result)
+        self.assertEqual([c.name for c in children], ['x'])
         self.assertTrue(var.expanded)
 
-    def test_expand_variable_nonexistent(self):
-        """Test expanding nonexistent variable."""
-        result = self.inspector.expand_variable("nonexistent")
+        self.mock_gdb.get_variable_children.reset_mock()
+        self.assertEqual(self.inspector.expand_variable("p"), children)
+        self.mock_gdb.get_variable_children.assert_not_called()
 
-        # Should return False
-        self.assertFalse(result)
+    def test_expand_variable_nonexistent(self):
+        """Expanding something unknown yields nothing."""
+        self.assertEqual(self.inspector.expand_variable("nonexistent"), [])
 
     def test_collapse_variable(self):
         """Test collapsing variables."""
@@ -252,12 +255,14 @@ class TestVariableInspector(unittest.TestCase):
         var = Variable('p', '{x = 1, y = 2}', 'struct Point')
         self.inspector.local_variables = [var]
 
-        self.assertTrue(self.inspector.expand_variable('p'))
+        self.assertEqual(len(self.inspector.expand_variable('p')), 2)
 
         self.mock_gdb.get_variable_children.assert_called_once_with('p')
         self.assertEqual([c.name for c in var.children], ['x', 'y'])
         self.assertEqual(var.children[1].value, '2')
         self.assertEqual(var.children[0].type, 'int')
+        # Children are addressable by the expression that reaches them
+        self.assertEqual([c.path for c in var.children], ['p.x', 'p.y'])
 
     def test_load_array_elements(self):
         """Array expansion still evaluates elements one by one."""
@@ -265,13 +270,41 @@ class TestVariableInspector(unittest.TestCase):
         var = Variable('arr', '{...}', 'int [2]')
         self.inspector.local_variables = [var]
 
-        self.assertTrue(self.inspector.expand_variable('arr'))
+        self.assertEqual(len(self.inspector.expand_variable('arr')), 2)
 
         self.assertEqual([c.name for c in var.children], ['[0]', '[1]'])
         self.assertEqual([c.value for c in var.children], ['4', '5'])
         self.assertEqual(var.children[0].type, 'int')
+        self.assertEqual([c.path for c in var.children], ['arr[0]', 'arr[1]'])
         # Arrays use the element-wise path, not the varobj path
         self.mock_gdb.get_variable_children.assert_not_called()
+
+    def test_expand_nested_struct(self):
+        """A field of a struct is expanded by its own path."""
+        self.mock_gdb.get_variable_children.side_effect = [
+            # children of `b`
+            [{'name': 'lo', 'value': '', 'type': 'struct Point', 'numchild': '2'}],
+            # children of `b.lo`
+            [{'name': 'x', 'value': '0', 'type': 'int', 'numchild': '0'}],
+        ]
+        var = Variable('b', '{lo = {...}}', 'struct Box')
+        self.inspector.local_variables = [var]
+
+        outer = self.inspector.expand_variable('b')
+        self.assertEqual([c.path for c in outer], ['b.lo'])
+
+        inner = self.inspector.expand_variable('b.lo')
+
+        self.mock_gdb.get_variable_children.assert_called_with('b.lo')
+        self.assertEqual([c.name for c in inner], ['x'])
+        self.assertEqual([c.path for c in inner], ['b.lo.x'])
+        # find_variable reaches any depth
+        self.assertIs(self.inspector.find_variable('b.lo.x'), inner[0])
+
+    def test_find_variable_unknown(self):
+        """An unknown path finds nothing."""
+        self.assertIsNone(self.inspector.find_variable('nope'))
+        self.assertIsNone(self.inspector.find_variable('nope.deeper'))
 
 
 if __name__ == '__main__':

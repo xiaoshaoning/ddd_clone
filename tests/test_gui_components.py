@@ -524,3 +524,35 @@ def test_clicking_an_existing_breakpoint_removes_it(qtbot):
     mock_gdb.set_breakpoint.assert_not_called()
     mock_gdb.delete_breakpoint.assert_called_once_with(3)
     assert window.breakpoint_manager.get_breakpoints() == []
+
+
+def test_nested_struct_expansion_in_variables_tree(qtbot):
+    """A struct field that is itself a struct can be opened."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_variables.return_value = [
+        {'name': 'b', 'value': '{lo = {...}}', 'type': 'struct Box'},
+    ]
+    mock_gdb.get_variable_children.side_effect = [
+        [{'name': 'lo', 'value': '', 'type': 'struct Point', 'numchild': '2'}],
+        [{'name': 'x', 'value': '0', 'type': 'int', 'numchild': '0'}],
+    ]
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window._update_variables_tree()
+
+    outer = window.variables_tree.topLevelItem(0)
+    outer.setExpanded(True)
+    assert outer.childCount() == 1
+
+    lo = outer.child(0)
+    assert lo.text(0) == 'lo'
+    assert lo.data(0, Qt.UserRole) == 'b.lo'
+    # A nested composite advertises that it can be opened too
+    assert lo.childIndicatorPolicy() == lo.ShowIndicator
+
+    lo.setExpanded(True)
+    assert lo.childCount() == 1
+    assert lo.child(0).text(0) == 'x'
+    assert lo.child(0).data(0, Qt.UserRole) == 'b.lo.x'

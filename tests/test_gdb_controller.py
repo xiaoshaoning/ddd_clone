@@ -396,6 +396,31 @@ class TestGDBController(unittest.TestCase):
         self.controller.send_command.assert_called_once_with('-var-delete var1')
 
     @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variable_children_aggregate_value(self, mock_send_mi):
+        """A child whose value contains braces still yields its type.
+
+        GDB reports an unexpanded aggregate as value="{...}", and a plain
+        [^}]* would stop at that brace and drop every later field.
+        """
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+        self.controller.send_command = Mock(return_value=True)
+        mock_send_mi.side_effect = [
+            ('^', 'done,name="var1",numchild="3",value="{...}",type="struct Box"'),
+            ('^', 'done,numchild="3",children=['
+                  'child={name="var1.lo",exp="lo",numchild="2",value="{...}",'
+                  'type="struct Point",thread-id="1"},'
+                  'child={name="var1.id",exp="id",numchild="0",value="7",type="int"}'
+                  '],has_more="0"'),
+        ]
+
+        children = self.controller.get_variable_children('b')
+
+        self.assertEqual(children[0], {
+            'name': 'lo', 'value': '{...}', 'type': 'struct Point', 'numchild': '2'})
+        self.assertEqual(children[1]['type'], 'int')
+
+    @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_variable_children_rejects_bad_expression(self, mock_send_mi):
         """An expression GDB cannot make a varobj for yields no children."""
         self.controller.gdb_process = Mock()
