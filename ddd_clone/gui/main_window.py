@@ -3,7 +3,7 @@ Main application window for DDD Clone.
 """
 
 import os
-from typing import Any
+from typing import Any, Optional
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
@@ -445,10 +445,8 @@ class MainWindow(QMainWindow):
                          state_info['line'] is not None and state_info['line'] > 0)
 
         if has_valid_line and state == 'stopped':
-            # Highlight current execution line in source viewer
-            current_line = state_info['line']
-            self.current_file_label.setText(f"{state_info['file']}:{current_line}")
-            self.source_viewer.highlight_current_line(current_line)
+            # Follow the program into whichever file it stopped in
+            self._show_source_location(state_info, state_info['line'])
         else:
             # Clear highlight when program exits or no valid line info
             self.source_viewer.clear_all_highlights()
@@ -466,6 +464,34 @@ class MainWindow(QMainWindow):
             self.variable_inspector.update_watch_expressions()
             self._update_watch_tree()
             self._update_watchpoints_tree()
+
+    def _resolve_source_path(self, state_info: dict) -> Optional[str]:
+        """Find a path on disk for the file the program stopped in, or None."""
+        # fullname is the absolute path when GDB can provide it
+        fullname = state_info.get('fullname')
+        if fullname and os.path.exists(fullname):
+            return fullname
+
+        # file is often only a basename; look next to the source already open
+        file_name = state_info.get('file')
+        if not file_name:
+            return None
+        current_file = getattr(self.source_viewer, 'current_file', None)
+        if current_file:
+            candidate = os.path.join(os.path.dirname(current_file),
+                                     os.path.basename(file_name))
+            if os.path.exists(candidate):
+                return candidate
+        return file_name if os.path.exists(file_name) else None
+
+    def _show_source_location(self, state_info: dict, line_number: int) -> None:
+        """Show the stopped file, loading it if it is not the one on screen."""
+        path = self._resolve_source_path(state_info)
+        if path and not self._is_current_source(path):
+            self.source_viewer.load_source_file(path, line_number)
+        else:
+            self.source_viewer.highlight_current_line(line_number)
+        self.current_file_label.setText(f"{path or state_info.get('file', '')}:{line_number}")
 
     def _append_console_output(self, text: str) -> None:
         """Append decoded GDB console text to the output area."""

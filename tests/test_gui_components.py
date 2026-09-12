@@ -342,3 +342,58 @@ def test_watchpoints_tree_shows_value(qtbot):
     assert item.text(0) == 'x'
     assert item.text(2) == 'Yes'
     assert item.text(3) == '7'
+
+
+def test_update_ui_state_follows_source_file(qtbot, tmp_path):
+    """Stopping in another file loads that file and highlights the line."""
+    first = tmp_path / 'first.c'
+    second = tmp_path / 'second.c'
+    first.write_text('int main(void) { return 0; }\n')
+    second.write_text('int helper(void) {\n    return 1;\n}\n')
+
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_registers.return_value = []
+    mock_gdb.get_register_values.return_value = []
+    mock_gdb.get_variables.return_value = []
+    mock_gdb.get_call_stack.return_value = []
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window.source_viewer.load_source_file(str(first))
+    assert window.source_viewer.current_file == str(first)
+
+    # Same file: just move the highlight, do not reload
+    window.update_ui_state({'state': 'stopped', 'file': 'first.c',
+                            'fullname': str(first), 'line': 1})
+    assert window.source_viewer.current_file == str(first)
+    assert window.source_viewer.current_line == 1
+
+    # Different file: the viewer follows the program
+    window.update_ui_state({'state': 'stopped', 'file': 'second.c',
+                            'fullname': str(second), 'line': 2})
+    assert window.source_viewer.current_file == str(second)
+    assert window.source_viewer.current_line == 2
+    assert 'second.c' in window.current_file_label.text()
+
+
+def test_resolve_source_path_falls_back_to_basename(qtbot, tmp_path):
+    """A bare basename resolves next to the source already open."""
+    folder = tmp_path / 'src'
+    folder.mkdir()
+    source = folder / 'main.c'
+    source.write_text('int main(void) { return 0; }\n')
+
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window.source_viewer.load_source_file(str(source))
+
+    # fullname missing, file is only a basename
+    resolved = window._resolve_source_path({'file': 'main.c'})
+    assert resolved == str(source)
+
+    # Nothing on disk to resolve
+    assert window._resolve_source_path({'file': 'nowhere.c'}) is None

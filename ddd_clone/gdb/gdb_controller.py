@@ -58,6 +58,7 @@ class GDBController(QObject):
         self.current_state = {
             'state': 'disconnected',
             'file': None,
+            'fullname': None,
             'line': None,
             'function': None
         }
@@ -199,15 +200,20 @@ class GDBController(QObject):
             state['state'] = 'exited'
             state['line'] = None
             state['file'] = None
+            state['fullname'] = None
             state['function'] = None
         else:
             # Normal stopped state (e.g., breakpoint hit)
             state['state'] = 'stopped'
             file_match = re.search(r'file="([^"]+)"', content)
+            fullname_match = re.search(r'fullname="([^"]+)"', content)
             line_match = re.search(r'line="(\d+)"', content)
             func_match = re.search(r'func="([^"]+)"', content)
+            # file is often just the basename; fullname is the absolute path
             if file_match:
-                state['file'] = file_match.group(1)
+                state['file'] = _unescape_mi_string(file_match.group(1))
+            if fullname_match:
+                state['fullname'] = _unescape_mi_string(fullname_match.group(1))
             if line_match:
                 state['line'] = int(line_match.group(1))
             if func_match:

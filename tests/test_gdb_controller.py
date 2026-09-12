@@ -509,11 +509,13 @@ class TestGDBController(unittest.TestCase):
         self.controller.state_changed.connect(states.append)
         self.controller._process_output(
             '*stopped,reason="breakpoint-hit",bkptno="1",frame={addr="0x1",'
-            'func="main",args=[],file="simple.c",fullname="/tmp/simple.c",line="5"}'
+            'func="main",args=[],file="simple.c",'
+            'fullname="D:\\\\proj\\\\simple.c",line="5"}'
         )
         self.assertEqual(created, [])
         self.assertEqual(states[-1]['state'], 'stopped')
         self.assertEqual(states[-1]['file'], 'simple.c')
+        self.assertEqual(states[-1]['fullname'], 'D:\\proj\\simple.c')
         self.assertEqual(states[-1]['line'], 5)
         self.assertEqual(states[-1]['function'], 'main')
 
@@ -526,6 +528,7 @@ class TestGDBController(unittest.TestCase):
         self.controller._process_output('*stopped,reason="exited-normally"')
         self.assertEqual(states[-1]['state'], 'exited')
         self.assertIsNone(states[-1]['line'])
+        self.assertIsNone(states[-1]['fullname'])
 
     def test_process_output_routes_tokenized_response(self):
         """A tokenized result reaches the waiter for that token."""
