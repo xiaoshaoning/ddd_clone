@@ -7,7 +7,7 @@ from typing import Optional
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QPlainTextEdit,
+    QComboBox, QPlainTextEdit,
 )
 from PyQt5.QtGui import QFont
 
@@ -20,13 +20,17 @@ class MemoryViewer(QWidget):
     expression that evaluates to one (&value, $rsp, main).
     """
 
+    # 16 bytes per row is the convention every hex dump uses; how much memory
+    # to show is something the reader does choose per session.
     BYTES_PER_ROW = 16
-    BYTE_COUNT = 256  # ponytail: fixed for now; add a size selector when asked
+    BYTE_COUNTS = (64, 128, 256, 512, 1024)
+    BYTE_COUNT = 256
 
     def __init__(self, gdb_controller, parent=None):
         super().__init__(parent)
         self.gdb_controller = gdb_controller
         self.address_expression = None
+        self.byte_count = self.BYTE_COUNT
 
         layout = QVBoxLayout(self)
 
@@ -40,6 +44,13 @@ class MemoryViewer(QWidget):
         self.read_button = QPushButton("Read")
         self.read_button.clicked.connect(self.read_from_input)
         address_layout.addWidget(self.read_button)
+
+        address_layout.addWidget(QLabel("Bytes:"))
+        self.size_combo = QComboBox()
+        self.size_combo.addItems(str(size) for size in self.BYTE_COUNTS)
+        self.size_combo.setCurrentText(str(self.byte_count))
+        self.size_combo.currentTextChanged.connect(self._on_size_changed)
+        address_layout.addWidget(self.size_combo)
         layout.addLayout(address_layout)
 
         self.dump = QPlainTextEdit()
@@ -51,6 +62,11 @@ class MemoryViewer(QWidget):
     def read_from_input(self) -> None:
         """Read whatever address is typed into the input field."""
         self.set_address(self.address_input.text())
+
+    def _on_size_changed(self, text: str) -> None:
+        """Re-read the current address at the newly chosen size."""
+        self.byte_count = int(text)
+        self.refresh()
 
     def set_address(self, expression: str) -> bool:
         """
@@ -85,7 +101,7 @@ class MemoryViewer(QWidget):
             self.dump.setPlainText(f"Cannot resolve: {self.address_expression}")
             return False
 
-        data = self.gdb_controller.read_memory(address, self.BYTE_COUNT)
+        data = self.gdb_controller.read_memory(address, self.byte_count)
         if data is None:
             self.dump.setPlainText(f"Cannot read memory at 0x{address:x}")
             return False

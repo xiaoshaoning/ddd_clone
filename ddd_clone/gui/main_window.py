@@ -374,6 +374,10 @@ class MainWindow(QMainWindow):
         # Connect call stack navigation
         self.call_stack_tree.itemDoubleClicked.connect(self._on_call_stack_frame_activated)
 
+        # A view only refreshes when it is on screen, so it needs refreshing
+        # when it becomes the one on screen
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
         # Connect variable tree expansion for composite types
         self.variables_tree.itemExpanded.connect(self._on_variable_expanded)
         self.variables_tree.itemCollapsed.connect(self._on_variable_collapsed)
@@ -461,16 +465,36 @@ class MainWindow(QMainWindow):
             else:
                 self.current_file_label.setText("No file loaded")
 
-        # Update all debug views when program is stopped
+        # Refreshing every view on every stop costs ~47ms against a local GDB,
+        # most of it re-reading 207 registers for a tab that is usually not on
+        # screen, so only the visible view is refreshed here; the others are
+        # refreshed by _on_tab_changed when they are brought forward.
         if state == 'stopped':
-            self._update_registers_tree()
+            self._refresh_current_tab()
+
+    def _refresh_current_tab(self) -> None:
+        """Refresh the debug view currently on screen."""
+        current = self.tab_widget.currentWidget()
+
+        if current is self.variables_tree:
             self._update_variables_tree()
-            self._update_call_stack_tree()
+        elif current is self.watch_tree:
             self.variable_inspector.update_watch_expressions()
             self._update_watch_tree()
-            # Rebuilds the breakpoint and watchpoint trees through its signals
+        elif current in (self.breakpoints_tree, self.watchpoints_tree):
+            # Rebuilds both trees through the manager's signals
             self.breakpoint_manager.refresh()
+        elif current is self.registers_tree:
+            self._update_registers_tree()
+        elif current is self.call_stack_tree:
+            self._update_call_stack_tree()
+        elif current is self.memory_viewer:
             self.memory_viewer.refresh()
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Show fresh data for a view the moment it is brought forward."""
+        if self.gdb_controller.current_state.get('state') == 'stopped':
+            self._refresh_current_tab()
 
     def _resolve_source_path(self, state_info: dict) -> Optional[str]:
         """Find a path on disk for the file the program stopped in, or None."""

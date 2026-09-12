@@ -614,3 +614,31 @@ def test_hover_timer_functionality(qtbot):
     viewer.cursorForPosition = original_cursorForPosition
 
     print("[OK] Hover timer functionality test passed")
+
+def test_comment_lines_are_not_breakable(qtbot):
+    """is_code_line ignores comments, including lines inside a block comment."""
+    from ddd_clone.gui.source_viewer import SourceViewer
+
+    source = "\n".join([
+        "/* a block comment",                       # 1
+        "   still comment",                         # 2
+        "*/",                                       # 3
+        "int main(void) {",                         # 4
+        "    // line comment",                      # 5
+        "",                                         # 6
+        "    int x = 1; /* trailing */",            # 7
+        "    char *s = \"/* not a comment */\";",   # 8
+        "    char *t = \"// not either\";",         # 9
+        "    /* starts here",                       # 10
+        "       ends here */ int y = 2;",           # 11
+        "    return x + y;",                        # 12
+        "}",                                        # 13
+    ])
+    viewer = SourceViewer()
+    qtbot.addWidget(viewer)
+    viewer.setPlainText(source)
+
+    for line in (1, 2, 3, 5, 6, 10):
+        assert not viewer.is_code_line(line), f"line {line} should not be breakable"
+    for line in (4, 7, 8, 9, 11, 12, 13):
+        assert viewer.is_code_line(line), f"line {line} should be breakable"

@@ -90,3 +90,21 @@ def test_unreadable_address_reports(qtbot):
     mock_gdb.read_memory.return_value = None
     assert viewer.set_address('0x1000') is False
     assert 'Cannot read memory' in viewer.dump.toPlainText()
+
+
+def test_size_selector_default_and_change(qtbot):
+    """The size selector re-reads the same address at the new size."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.read_memory.return_value = b'\x01'
+
+    viewer = MemoryViewer(mock_gdb)
+    qtbot.addWidget(viewer)
+    assert viewer.size_combo.currentText() == str(MemoryViewer.BYTE_COUNT)
+
+    assert viewer.set_address('0x2000') is True
+    mock_gdb.read_memory.reset_mock()
+
+    viewer.size_combo.setCurrentText('512')
+
+    mock_gdb.read_memory.assert_called_once_with(0x2000, 512)
+    assert viewer.byte_count == 512

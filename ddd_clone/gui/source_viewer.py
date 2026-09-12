@@ -593,35 +593,64 @@ class SourceViewer(QTextEdit):
         Returns:
             bool: True if line can have a breakpoint
         """
-        line_text = self.get_line_content(line_number)
-        # Remove leading/trailing whitespace
-        stripped = line_text.strip()
+        return self._line_has_code(line_number)
 
-        # Empty line or whitespace-only line
-        if not stripped:
+    def _line_has_code(self, line_number: int) -> bool:
+        """
+        Check whether a line holds code outside comments and string literals.
+
+        The whole file is scanned up to that line, because whether a line is
+        inside a block comment depends on every line before it. C comments do
+        not nest, and a string literal is not carried across lines (an
+        unterminated quote would otherwise swallow the rest of the file).
+
+        Args:
+            line_number: 1-based line number
+
+        Returns:
+            bool: True if the line has at least one character of code
+        """
+        lines = self.toPlainText().split('\n')
+        if line_number < 1 or line_number > len(lines):
             return False
 
-        # Check for C/C++ single line comment
-        if stripped.startswith('//'):
-            return False
+        in_block_comment = False
+        for number in range(1, line_number + 1):
+            text = lines[number - 1]
+            has_code = False
+            quote = None
+            index = 0
+            while index < len(text):
+                char = text[index]
+                following = text[index + 1] if index + 1 < len(text) else ''
 
-        # Check for C/C++ multi-line comment start (/*)
-        # Remove leading whitespace first
-        lstrip_line = line_text.lstrip()
-        if lstrip_line.startswith('/*'):
-            return False
+                if in_block_comment:
+                    if char == '*' and following == '/':
+                        in_block_comment = False
+                        index += 2
+                        continue
+                elif quote:
+                    if char == '\\':
+                        index += 2
+                        continue
+                    if char == quote:
+                        quote = None
+                elif char == '/' and following == '*':
+                    in_block_comment = True
+                    index += 2
+                    continue
+                elif char == '/' and following == '/':
+                    break  # rest of the line is a line comment
+                elif char in ('"', "'"):
+                    quote = char
+                elif not char.isspace():
+                    has_code = True
+                index += 1
 
-        # Check for lines that are only a comment closing (*/)
-        # This is less common but could happen
-        if stripped.startswith('*/') or stripped.endswith('*/'):
-            # Could be a line with only */ or something like "} */"
-            # For simplicity, reject lines containing only */ or starting with */
-            if stripped == '*/' or stripped.startswith('*/'):
-                return False
+            if number == line_number:
+                return has_code
 
-        # TODO: Handle multi-line comments more accurately
-        # For now, accept all other lines
-        return True
+        return False
 
     def toggle_breakpoint(self, line_number: int):
         """Toggle breakpoint at specified line."""

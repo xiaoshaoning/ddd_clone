@@ -556,3 +556,43 @@ def test_nested_struct_expansion_in_variables_tree(qtbot):
     assert lo.childCount() == 1
     assert lo.child(0).text(0) == 'x'
     assert lo.child(0).data(0, Qt.UserRole) == 'b.lo.x'
+
+
+def test_only_the_visible_tab_refreshes_on_stop(qtbot):
+    """A stop refreshes the view on screen, not all six."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_variables.return_value = []
+    mock_gdb.get_registers.return_value = []
+    mock_gdb.get_register_values.return_value = []
+    mock_gdb.get_call_stack.return_value = []
+    mock_gdb.get_breakpoints.return_value = []
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window.tab_widget.setCurrentWidget(window.variables_tree)
+
+    window.update_ui_state({'state': 'stopped', 'file': 'x.c', 'fullname': '',
+                            'line': 1, 'function': 'main'})
+
+    assert mock_gdb.get_variables.called
+    mock_gdb.get_register_values.assert_not_called()
+
+    # Bringing the Registers tab forward is what pays for its 207 registers
+    window.tab_widget.setCurrentWidget(window.registers_tree)
+
+    assert mock_gdb.get_registers.called
+    assert mock_gdb.get_register_values.called
+
+
+def test_tab_switch_does_not_refresh_while_running(qtbot):
+    """Switching tabs while the program runs must not ask GDB for anything."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'running'}
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window.tab_widget.setCurrentWidget(window.registers_tree)
+
+    mock_gdb.get_registers.assert_not_called()
+    mock_gdb.get_variables.assert_not_called()
