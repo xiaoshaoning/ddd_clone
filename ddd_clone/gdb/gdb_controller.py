@@ -193,7 +193,10 @@ class GDBController(QObject):
         elif record_type in ('*', '^') and content.startswith('running'):
             self.current_state['state'] = 'running'
             self.state_changed.emit(self.current_state.copy())
-        elif record_type == '^' and content.startswith('done') and 'bkpt={' in content:
+        elif record_type == '^' and content.startswith('done,bkpt={'):
+            # -break-insert answers with ^done,bkpt={...}. A -break-list answer
+            # (^done,BreakpointTable={...bkpt={...}}) must not match, or
+            # refreshing the list would look like a new breakpoint.
             self._emit_breakpoint_created(content)
         elif record_type == '=' and content.startswith('breakpoint-created'):
             self._emit_breakpoint_created(content)
@@ -382,6 +385,7 @@ class GDBController(QObject):
                 expression  watched expression          (watchpoints)
                 watch_type  "write", "read" or "access" (watchpoints)
                 file, line, condition   location and condition (breakpoints)
+                                       (file is absolute when GDB knows it)
         """
         if not self.gdb_process or self.gdb_process.poll() is not None:
             return []
@@ -417,7 +421,9 @@ class GDBController(QObject):
                     'number': number,
                     'enabled': fields.get('enabled') == 'y',
                     'watchpoint': False,
-                    'file': _unescape_mi_string(fields.get('file', '')),
+                    # file is often just a basename; fullname is the absolute path
+                    'file': _unescape_mi_string(
+                        fields.get('fullname') or fields.get('file', '')),
                     'line': int(line) if line.isdigit() else 0,
                     'condition': _unescape_mi_string(fields['cond']) if 'cond' in fields else None,
                 })

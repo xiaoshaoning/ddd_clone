@@ -226,18 +226,6 @@ class BreakpointManager(QObject):
         """
         return list(self.breakpoints.values())
 
-    def get_breakpoints_in_file(self, file_path: str) -> List[Breakpoint]:
-        """
-        Get all breakpoints in a specific file.
-
-        Args:
-            file_path: Path to the source file
-
-        Returns:
-            List of breakpoints in the file
-        """
-        return [bp for bp in self.breakpoints.values() if bp.file == file_path]
-
     def clear_all_breakpoints(self):
         """Clear all breakpoints, leaving watchpoints alone."""
         for gdb_number in list(self.breakpoints.keys()):

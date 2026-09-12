@@ -252,21 +252,6 @@ class TestBreakpointManager(unittest.TestCase):
         self.assertIn(bp1, breakpoints)
         self.assertIn(bp2, breakpoints)
 
-    def test_get_breakpoints_in_file(self):
-        """Test getting breakpoints in specific file."""
-        bp1 = self.manager.add_breakpoint("test.c", 10)
-        self.mock_gdb.set_breakpoint.return_value = 2
-        bp2 = self.manager.add_breakpoint("test.c", 20)
-        self.mock_gdb.set_breakpoint.return_value = 3
-        bp3 = self.manager.add_breakpoint("other.c", 30)
-
-        breakpoints = self.manager.get_breakpoints_in_file("test.c")
-
-        self.assertEqual(len(breakpoints), 2)
-        self.assertIn(bp1, breakpoints)
-        self.assertIn(bp2, breakpoints)
-        self.assertNotIn(bp3, breakpoints)
-
     def test_clear_all_breakpoints_leaves_watchpoints(self):
         """Clearing breakpoints does not touch watchpoints."""
         self.manager.add_breakpoint("test1.c", 10)

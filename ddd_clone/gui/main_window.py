@@ -16,7 +16,7 @@ from PyQt5.QtGui import QFont
 
 from ..gdb.gdb_controller import GDBController
 from .source_viewer import SourceViewer
-from .breakpoint_manager import BreakpointManager
+from .breakpoint_manager import BreakpointManager, Breakpoint
 from .variable_inspector import VariableInspector
 from .memory_viewer import MemoryViewer
 
@@ -908,15 +908,16 @@ class MainWindow(QMainWindow):
 
     def remove_breakpoint_at_line(self, line_number: int) -> None:
         """Remove breakpoint at specific line in current file."""
-        if hasattr(self.source_viewer, 'current_file'):
-            current_file = self.source_viewer.current_file
-            if current_file:
-                # Find breakpoint at this location
-                breakpoints = self.breakpoint_manager.get_breakpoints_in_file(current_file)
-                for bp in breakpoints:
-                    if bp.line == line_number:
-                        self.breakpoint_manager.remove_breakpoint(bp.gdb_number)
-                        break
+        breakpoint = self._find_breakpoint_at(line_number)
+        if breakpoint:
+            self.breakpoint_manager.remove_breakpoint(breakpoint.gdb_number)
+
+    def _find_breakpoint_at(self, line_number: int) -> Optional[Breakpoint]:
+        """The breakpoint on this line of the file on screen, if there is one."""
+        for breakpoint in self.breakpoint_manager.get_breakpoints():
+            if breakpoint.line == line_number and self._is_current_source(breakpoint.file):
+                return breakpoint
+        return None
 
     def execute_gdb_command(self) -> None:
         """Execute a GDB command from the input field."""
@@ -940,12 +941,7 @@ class MainWindow(QMainWindow):
             current_file = self.source_viewer.current_file
 
             # Check if breakpoint already exists at this location
-            existing_bp = None
-            breakpoints = self.breakpoint_manager.get_breakpoints_in_file(current_file)
-            for bp in breakpoints:
-                if bp.line == line_number:
-                    existing_bp = bp
-                    break
+            existing_bp = self._find_breakpoint_at(line_number)
 
             if existing_bp:
                 # Remove existing breakpoint

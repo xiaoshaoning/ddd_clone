@@ -496,3 +496,31 @@ def test_condition_dialog_and_edit(qtbot):
 
     mock_gdb.set_breakpoint_condition.assert_called_once_with(4, 'i == 5')
     assert window.breakpoints_tree.topLevelItem(0).text(2) == 'i == 5'
+
+
+def test_clicking_an_existing_breakpoint_removes_it(qtbot):
+    """Toggling a line that already has a breakpoint never adds a duplicate.
+
+    GDB reports a bare basename when the program was compiled with a relative
+    source path, which is not what the viewer has loaded.
+    """
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.set_breakpoint = Mock(return_value=3)
+    mock_gdb.delete_breakpoint = Mock(return_value=True)
+    mock_gdb.get_breakpoints = Mock(return_value=[
+        {'number': 3, 'enabled': True, 'watchpoint': False,
+         'file': 'simple_program.c', 'line': 22, 'condition': None},
+    ])
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    source = os.path.join(os.path.dirname(__file__), '..', 'examples', 'simple_program.c')
+    window.source_viewer.load_source_file(source)
+    window.breakpoint_manager.refresh()
+
+    window.handle_breakpoint_toggle(22)
+
+    mock_gdb.set_breakpoint.assert_not_called()
+    mock_gdb.delete_breakpoint.assert_called_once_with(3)
+    assert window.breakpoint_manager.get_breakpoints() == []

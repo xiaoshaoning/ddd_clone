@@ -299,15 +299,27 @@ class TestGDBController(unittest.TestCase):
 
         self.assertEqual(entries, [
             {'number': 1, 'enabled': True, 'watchpoint': False,
-             'file': 'simple.c', 'line': 5, 'condition': None},
+             'file': 'D:\\p\\simple.c', 'line': 5, 'condition': None},
             {'number': 2, 'enabled': False, 'watchpoint': False,
-             'file': 'simple.c', 'line': 9, 'condition': 'i > 5'},
+             'file': 'D:\\p\\simple.c', 'line': 9, 'condition': 'i > 5'},
             {'number': 3, 'enabled': True, 'watchpoint': True,
              'expression': 'p', 'watch_type': 'write'},
             {'number': 4, 'enabled': True, 'watchpoint': True,
              'expression': 'n', 'watch_type': 'read'},
         ])
         mock_send_mi.assert_called_with("-break-list")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_breakpoints_falls_back_to_basename(self, mock_send_mi):
+        """Without a fullname, GDB's basename is all there is."""
+        mock_send_mi.return_value = (
+            '^', 'done,BreakpointTable={nr_rows="1",body=['
+                 'bkpt={number="1",type="breakpoint",enabled="y",file="simple.c",line="5"}'
+                 ']}')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        self.assertEqual(self.controller.get_breakpoints()[0]['file'], 'simple.c')
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_breakpoints_empty_table(self, mock_send_mi):
@@ -317,6 +329,26 @@ class TestGDBController(unittest.TestCase):
         self.controller.gdb_process.poll.return_value = None
 
         self.assertEqual(self.controller.get_breakpoints(), [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_breakpoints_does_not_look_like_a_creation(self, mock_send_mi):
+        """A -break-list answer must not be read as a new breakpoint.
+
+        The list contains bkpt={...} tuples, so a loose match would make every
+        refresh trigger another refresh.
+        """
+        created = []
+        self.controller.breakpoint_created.connect(lambda f, l: created.append((f, l)))
+        mock_send_mi.return_value = (
+            '^', 'done,BreakpointTable={nr_rows="1",body=['
+                 'bkpt={number="1",type="breakpoint",enabled="y",file="simple.c",line="5"}'
+                 ']}')
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+
+        self.controller.get_breakpoints()
+
+        self.assertEqual(created, [])
 
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_set_breakpoint_condition(self, mock_send_mi):
