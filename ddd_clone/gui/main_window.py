@@ -8,8 +8,8 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QToolBar,
     QAction, QStatusBar, QLabel, QMessageBox, QMenu, QFileDialog,
-    QLineEdit, QPushButton, QToolTip, QDialog, QComboBox,
-    QSizePolicy, QToolButton
+    QLineEdit, QPushButton, QDialog, QComboBox,
+    QSizePolicy, QToolButton, QApplication
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -33,14 +33,9 @@ class MainWindow(QMainWindow):
         self.breakpoint_manager = BreakpointManager(gdb_controller)
         self.variable_inspector = VariableInspector(gdb_controller)
 
-        # Variable hover tracking
-        self.pending_variable_queries = {}
-        self.current_hover_variable = None
-
         # Register display settings
         self.register_format = "x"  # Default: hexadecimal
         self.previous_register_values = {}  # For change detection
-        self.syntax_highlight_style = "xcode"  # Default syntax highlighting style
 
         self.setup_ui()
         self.connect_signals()
@@ -273,7 +268,7 @@ class MainWindow(QMainWindow):
         # Dropdown button for syntax highlighting preferences
         self.syntax_highlight_button = QToolButton(self)
         self.syntax_highlight_button.setFont(toolbar_font)
-        self.syntax_highlight_button.setText(f"Syntax: {self.syntax_highlight_style}")
+        self.syntax_highlight_button.setText(f"Syntax: {self.source_viewer.highlight_style}")
         self.syntax_highlight_button.setPopupMode(QToolButton.InstantPopup)
 
         # Create menu with available styles
@@ -281,12 +276,12 @@ class MainWindow(QMainWindow):
 
         # Available pygments styles (selected for light backgrounds)
         available_styles = [
-            "pastie",        # Current default - good contrast
+            "pastie",        # Good contrast
             "friendly",      # Clean and readable
             "tango",         # Based on Tango desktop palette
             "perldoc",       # Like perldoc, good for light backgrounds
             "vs",            # Visual Studio-like
-            "xcode",         # Xcode-like
+            "xcode",         # Xcode-like (SourceViewer default)
             "solarized-light", # Solarized light theme
             "default",       # Pygments default style
             "colorful",      # Colorful style
@@ -320,12 +315,10 @@ class MainWindow(QMainWindow):
 
     def _on_syntax_style_selected(self, style: str) -> None:
         """Handle syntax highlighting style selection from dropdown menu."""
-        if style != self.syntax_highlight_style:
-            success = self.source_viewer.set_syntax_highlight_style(style)
-            if success:
-                self.syntax_highlight_style = style
-                # Update button text
-                self.syntax_highlight_button.setText(f"Syntax: {style}")
+        # The source viewer owns the style; we only mirror it in the button.
+        if style != self.source_viewer.highlight_style and \
+                self.source_viewer.set_syntax_highlight_style(style):
+            self.syntax_highlight_button.setText(f"Syntax: {style}")
 
     def create_menu_bar(self) -> None:
         """Create the menu bar."""
@@ -348,7 +341,8 @@ class MainWindow(QMainWindow):
     def connect_signals(self) -> None:
         """Connect signals from GDB controller to UI updates."""
         self.gdb_controller.state_changed.connect(self.update_ui_state)
-        self.gdb_controller.output_received.connect(self.handle_gdb_output)
+        self.gdb_controller.console_output.connect(self._append_console_output)
+        self.gdb_controller.breakpoint_created.connect(self._add_breakpoint_visual_marker)
 
         # Connect source viewer signals
         self.source_viewer.breakpoint_toggled.connect(self.handle_breakpoint_toggle)
@@ -452,346 +446,26 @@ class MainWindow(QMainWindow):
             self._update_registers_tree()
             self._update_variables_tree()
 
-    def handle_gdb_output(self, output: str) -> None:
-        """Handle output received from GDB."""
-        # Process GDB output and update relevant UI components
-
-        # Handle breakpoint creation from GDB commands
-        self._handle_breakpoint_output(output)
-
-        # Handle variable value extraction for tooltips
-        self._handle_variable_output(output)
-
-        # Display output in the GDB output area
-        if hasattr(self, 'gdb_output_text'):
-            # Clean up the output by removing GDB/MI prefixes
-            clean_output = self._clean_gdb_output(output)
-            if clean_output:
-                self.gdb_output_text.append(clean_output)
-                # Auto-scroll to bottom
-                cursor = self.gdb_output_text.textCursor()
-                cursor.movePosition(cursor.End)
-                self.gdb_output_text.setTextCursor(cursor)
-
-    def _clean_gdb_output(self, output: str) -> str:
-        """Clean GDB/MI output by removing prefixes and formatting."""
-        import re
-
-        # First check if this is a variable print output or error message
-        # Variable print output typically looks like: ~"$1 = 5"
-        # Error messages typically start with ^error or &"Error
-
-        # Extract the actual content regardless of prefix
-        cleaned = ""
-        if output.startswith('~') or output.startswith('&'):
-            # Remove prefix and quotes for console output
-            cleaned = output[2:-1] if output.endswith('"') else output[2:]
-            # Remove escaped newlines
-            cleaned = cleaned.replace('\\n', '\n')
-            # Remove single quotes if they wrap the entire output
-            if cleaned.startswith("'") and cleaned.endswith("'"):
-                cleaned = cleaned[1:-1]
-            # Remove escaped quotes and backslashes
-            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-        elif output.startswith('='):
-            # MI result records - check if they contain variable values
-            # Look for patterns like =thread-group-started or =breakpoint-created
-            # We'll skip most of these unless they contain error information
-            if 'error' in output.lower():
-                # Extract error message from MI output
-                cleaned = output
-            else:
-                return ""
-        elif output.startswith('^'):
-            # MI result records - check for errors
-            if output.startswith('^error'):
-                # This is an error message, extract it
-                # Pattern: ^error,msg="Error message here"
-                match = re.search(r'msg="([^"]+)"', output)
-                if match:
-                    error_msg = match.group(1)
-                    # Filter out "Undefined MI command: exec-abort" error
-                    if "Undefined MI command: exec-abort" in error_msg:
-                        return ""
-                    cleaned = f"Error: {error_msg}"
-                else:
-                    cleaned = "Error (no message)"
-            else:
-                # Skip other ^ records
-                return ""
-        elif output.strip() == '(gdb)':
-            # Skip prompt
-            return ""
-        elif output.startswith('*'):
-            # Async output like *running, *stopped
-            # Skip these as they are not user-requested variable prints
-            return ""
-        else:
-            # Other output - keep as-is but check if it's variable or error
-            cleaned = output.strip()
-            # Remove quotes
-            if cleaned.startswith("'") and cleaned.endswith("'"):
-                cleaned = cleaned[1:-1]
-            if cleaned.startswith('"') and cleaned.endswith('"'):
-                cleaned = cleaned[1:-1]
-            cleaned = cleaned.replace('\\"', '"').replace('\\\\', '\\')
-
-        # Remove ANSI escape codes
-        cleaned = self._remove_ansi_escape_codes(cleaned)
-
-        # Check if this should be displayed (not filtered as noise)
-        if self._should_filter_output(cleaned):
-            return ""
-
-        # Clean up quotes around source code lines if present
-        cleaned = re.sub(r'"(\d+\\t.*?)"', r'\1', cleaned)
-
-        # Process variable output (keep $number = prefix, remove quotes from value)
-        variable_pattern = r'^\$\d+\s*='
-        if re.search(variable_pattern, cleaned) is not None:
-            # Strip whitespace (including newlines) from start and end
-            cleaned = cleaned.strip()
-            # Remove quotes from value part only (e.g., $1 = "value" -> $1 = value)
-            # Match pattern: $number = "value" or $number = 'value'
-            match = re.match(r'^(\$\d+\s*=\s*)([\'"]?)(.*?)\2$', cleaned)
-            if match:
-                # Reconstruct without quotes around value
-                cleaned = match.group(1) + match.group(3)
-            # Also handle cases where quotes might be around the whole output
-            elif cleaned.startswith('"') and cleaned.endswith('"'):
-                cleaned = cleaned[1:-1]
-            elif cleaned.startswith("'") and cleaned.endswith("'"):
-                cleaned = cleaned[1:-1]
-
-        # For other outputs, just strip whitespace
-        else:
-            cleaned = cleaned.strip()
-            # Remove surrounding quotes if present
-            if cleaned.startswith('"') and cleaned.endswith('"'):
-                cleaned = cleaned[1:-1]
-            elif cleaned.startswith("'") and cleaned.endswith("'"):
-                cleaned = cleaned[1:-1]
-
-        return cleaned
-
-    def _should_filter_output(self, output: str) -> bool:
-        """Check if output should be filtered out as noise."""
-        if not output:
-            return True
-
-        # Common noise patterns (case-insensitive)
-        noise_patterns = [
-            r'^GNU gdb.*',
-            r'^Copyright.*',
-            r'^License GPL.*',
-            r'^This is free software.*',
-            r'^There is NO WARRANTY.*',
-            r'^Type.*show copying.*',
-            r'^Type.*show warranty.*',
-            r'^This GDB was configured as.*',
-            r'^Type.*show configuration.*',
-            r'^For bug reporting instructions.*',
-            r'^Find the GDB manual.*',
-            r'^For help, type.*',
-            r'^Type.*apropos word.*',
-            r'^\s*$',  # Empty or whitespace-only lines
-            # URLs related to GDB documentation and bug reporting
-            r'^<https?://.*gnu\.org/software/gdb.*>.*',
-            r'^<https?://www\.gnu\.org/software/gdb.*>.*',
-            # General GDB info URLs
-            r'^<https?://.*gnu\.org/licenses/.*>.*',
-            # Lines that are just URLs in angle brackets
-            r'^<[^>]*>\s*\.?$',
-            # Incomplete lines from split output
-            r'^Type\s*".*',
-            r'^show copying.*',
-            r'^<".*',
-            r'.*gnu\.org/software/gdb.*',
-            r'^".*',  # Lines that start with a quote
-            # GDB/MI asynchronous notifications (technical details)
-            r'^\*?running,thread-id=.*',
-            r'^\*?stopped,reason=.*',
-            r'^\*?breakpoint-hit,.*',
-            r'^\*?thread-created,.*',
-            r'^\*?thread-exited,.*',
-            r'^\*?library-loaded,.*',
-            r'^\*?library-unloaded,.*',
-            # GDB/MI status messages with technical parameters
-            r'.*thread-id="\d+".*',
-            r'.*frame=\{.*',
-            r'.*stopped-threads=.*',
-            r'.*arch=".*".*',
-        ]
-
-        import re
-        for pattern in noise_patterns:
-            if re.match(pattern, output, re.IGNORECASE):
-                return True
-
-        # Also filter lines that are just punctuation or very short noise
-        if re.match(r'^[\s\"\'\\]*$', output):
-            return True
-
-        # Filter GDB command echo (e.g., "p sum", "print fib_result")
-        if re.match(r'^(p|print|break|watch|display|info|run|continue|next|step|finish|kill|quit)\s+', output, re.IGNORECASE):
-            return True
-
-        # Filter lines that contain command prompts but no actual output
-        if re.match(r'^\(\w+\)\s*$', output):
-            return True
-
-        # Filter GDB help and info lines that may be split across multiple lines
-        if re.match(r'^Type\s*".*', output, re.IGNORECASE):
-            return True
-        if re.match(r'^show\s+\w+.*', output, re.IGNORECASE):
-            return True
-        if re.match(r'.*for details.*', output, re.IGNORECASE):
-            return True
-        if re.match(r'.*for configuration details.*', output, re.IGNORECASE):
-            return True
-        if re.match(r'.*to search for commands.*', output, re.IGNORECASE):
-            return True
-
-        # Filter MI command responses (e.g., "1^done,register-names=...", "2^done,register-values=...")
-        if re.match(r'^\d+\^done,.*', output):
-            return True
-        if re.match(r'^\d+\^error,.*', output):
-            return True
-
-        # Filter GDB status messages (but keep breakpoint hits and source lines per user request)
-        if re.match(r'^Reading symbols from.*', output):
-            return True
-        if re.match(r'^\[New Thread.*\]', output):
-            return True
-        # Note: Thread hit Breakpoint and source code lines are kept - DO NOT filter them
-        # if re.match(r'^Thread \d+ hit Breakpoint.*', output):
-        #     return True
-        # if re.match(r'^\d+\s+.*at .*:\d+', output):  # Source code lines like "33    fib_result = fibonacci(number);"
-        #     return True
-        # if re.match(r'.* at .*:\d+', output):  # Function at file:line
-        #     return True
-
-        # Filter empty or mostly empty Type messages
-        if output.strip() == 'Type ""':
-            return True
-        if output.strip() == 'Type':
-            return True
-        if re.match(r'^Type\s*"?"?$', output):  # Type "" or Type "?"
-            return True
-
-        # Filter lines that are just punctuation, quotes, or very short
-        if len(output.strip()) <= 3 and re.match(r'^[\s\"\'\\\.\?]*$', output):
-            return True
-
-        return False
-
-    def _remove_ansi_escape_codes(self, text: str) -> str:
-        """Remove ANSI escape sequences from text."""
-        import re
-        # 7-bit C1 ANSI sequences
-        ansi_escape = re.compile(r'''
-            \x1B  # ESC
-            (?:   # 7-bit C1 Fe (except CSI)
-                [@-Z\\-_]
-            |     # or [ for CSI, followed by a control sequence
-                \[
-                [0-?]*  # Parameter bytes
-                [ -/]*  # Intermediate bytes
-                [@-~]   # Final byte
-            )
-        ''', re.VERBOSE)
-        return ansi_escape.sub('', text)
-
-    def _handle_breakpoint_output(self, output: str) -> None:
-        """Handle GDB output related to breakpoint creation."""
-        import re
-
-        # Add a marker only for breakpoint *creation* messages (e.g.
-        # "Breakpoint 1 at 0x401530: file simple_program.c, line 5.").
-        # Stop messages ("Breakpoint 1, main () at ...:23") must NOT add a
-        # marker - that duplicates the requested breakpoint line.
-        bp_pattern = r'Breakpoint (\d+) at .* file ([^,]+), line (\d+)'
-        match = re.search(bp_pattern, output)
-
-        if match:
-            file_path = match.group(2)
-            line_number = int(match.group(3))
-            self._add_breakpoint_visual_marker(file_path, line_number)
+    def _append_console_output(self, text: str) -> None:
+        """Append decoded GDB console text to the output area."""
+        if not text.strip():
+            return
+        self.gdb_output_text.append(text.rstrip("\n"))
+        # Auto-scroll to bottom
+        cursor = self.gdb_output_text.textCursor()
+        cursor.movePosition(cursor.End)
+        self.gdb_output_text.setTextCursor(cursor)
 
     def _add_breakpoint_visual_marker(self, file_path: str, line_number: int) -> None:
-        """Add visual breakpoint marker if the file matches current source."""
-        if (hasattr(self.source_viewer, 'current_file') and
-            self.source_viewer.current_file and
-            file_path in self.source_viewer.current_file):
-
-            # Add visual marker
+        """Add a visual marker if GDB reports the loaded source file."""
+        current_file = getattr(self.source_viewer, 'current_file', None)
+        if not current_file:
+            return
+        # GDB may report an absolute path with either slash direction; compare
+        # basenames so the marker lands on the source that is on screen.
+        if os.path.basename(file_path.replace('\\', '/')) == \
+                os.path.basename(current_file.replace('\\', '/')):
             self.source_viewer.add_breakpoint_marker(line_number)
-
-    def _handle_variable_output(self, output: str) -> None:
-        """Extract variable values from GDB output for tooltips."""
-        import re
-
-        # Check if this output contains a variable value from a pending query
-        if not self.pending_variable_queries or not self.current_hover_variable:
-            return
-
-        # Skip error messages
-        if output.startswith('^error'):
-            # Remove from pending queries without updating tooltip
-            if self.current_hover_variable in self.pending_variable_queries:
-                del self.pending_variable_queries[self.current_hover_variable]
-                # Hide tooltip for errors
-                QToolTip.hideText()
-            return
-
-        # Pattern to match GDB print output like "$1 = 5" or "$272 = 5"
-        # Also handles arrays and structures
-        value_pattern = r'=\s*(.+)'
-
-        match = re.search(value_pattern, output)
-        if match:
-            variable_value = match.group(1).strip()
-            # Clean up the value: remove quotes and escape sequences
-            # Remove all double quotes (not just surrounding)
-            variable_value = variable_value.replace('"', '')
-            # Remove any remaining "= " prefix just in case
-            if variable_value.startswith('= '):
-                variable_value = variable_value[2:]
-            elif variable_value.startswith('='):
-                variable_value = variable_value[1:]
-            # Handle escape sequences - both literal backslash-n and actual newlines
-            variable_value = variable_value.replace('\\n', '').replace('\\r', '').replace('\\t', ' ')
-            variable_value = variable_value.replace('\n', '').replace('\r', '')
-            # Also handle escaped backslashes and quotes
-            variable_value = variable_value.replace('\\\\', '').replace('\\"', '')
-            # Collapse multiple spaces and trim
-            variable_value = ' '.join(variable_value.split())
-            # Final trim
-            variable_value = variable_value.strip()
-
-            # Skip function addresses (e.g., "{int (void)} 0x7ff7625314fd <main>")
-            # This pattern matches function type signatures
-            if re.match(r'^\{.*\}.*<.*>$', variable_value):
-                # Remove from pending queries without updating tooltip
-                if self.current_hover_variable in self.pending_variable_queries:
-                    del self.pending_variable_queries[self.current_hover_variable]
-                    # Hide tooltip for function addresses
-                    QToolTip.hideText()
-                return
-
-            # Check if this is for our current hover variable
-            if self.current_hover_variable in self.pending_variable_queries:
-                # Update the tooltip with the actual value
-                self._update_variable_tooltip(self.current_hover_variable, variable_value)
-
-                # Remove from pending queries
-                del self.pending_variable_queries[self.current_hover_variable]
-                print(f"{variable_value}")
-
-    def _update_variable_tooltip(self, variable_name: str, value: str) -> None:
-        """Update the tooltip with the actual variable value."""
-        # Update the source viewer with the variable value and update tooltip
-        self.source_viewer.update_variable_tooltip(variable_name, value)
 
     def _update_watchpoints_tree(self) -> None:
         """Update the watchpoints tree with current watchpoints."""
@@ -1071,23 +745,14 @@ class MainWindow(QMainWindow):
             pass  # Cannot set breakpoint: no source file loaded
 
     def handle_variable_hover(self, variable_name: str) -> None:
-        """Handle variable hover and query GDB for variable value."""
+        """Handle variable hover by asking the controller for the value."""
         # Only query variable values when program is stopped
         if self.gdb_controller.current_state['state'] != 'stopped':
             return
 
-        # Store the current hover variable
-        self.current_hover_variable = variable_name
-
-        # Query GDB for variable value
-        try:
-            # Send command to get variable value
-            command = f"print {variable_name}"
-            if self.gdb_controller.send_command(command):
-                # Track this query so we can extract the value from the output
-                self.pending_variable_queries[variable_name] = True
-        except Exception:
-            pass  # Silent error handling
+        value = self.gdb_controller.evaluate_expression(variable_name)
+        if value is not None:
+            self.source_viewer.update_variable_tooltip(variable_name, value)
 
     def _show_gdb_output_context_menu(self, position: Any) -> None:
         """Show context menu for GDB output text area."""
@@ -1221,39 +886,25 @@ class MainWindow(QMainWindow):
 
         # Copy value action
         copy_value_action = QAction("Copy Value", self.registers_tree)
-        copy_value_action.triggered.connect(lambda: self._copy_register_value(item.text(2)))
+        copy_value_action.triggered.connect(lambda: self._copy_to_clipboard(item.text(2)))
         menu.addAction(copy_value_action)
 
         # Copy name action
         copy_name_action = QAction("Copy Name", self.registers_tree)
-        copy_name_action.triggered.connect(lambda: self._copy_register_name(register_name))
+        copy_name_action.triggered.connect(lambda: self._copy_to_clipboard(register_name))
         menu.addAction(copy_name_action)
 
         # Copy number action
         copy_number_action = QAction("Copy Number", self.registers_tree)
-        copy_number_action.triggered.connect(lambda: self._copy_register_number(item.text(1)))
+        copy_number_action.triggered.connect(lambda: self._copy_to_clipboard(item.text(1)))
         menu.addAction(copy_number_action)
 
         # Show the menu at the cursor position
         menu.exec_(self.registers_tree.viewport().mapToGlobal(position))
 
-    def _copy_register_value(self, value: str) -> None:
-        """Copy register value to clipboard."""
-        from PyQt5.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        clipboard.setText(value)
-
-    def _copy_register_name(self, register_name: str) -> None:
-        """Copy register name to clipboard."""
-        from PyQt5.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        clipboard.setText(register_name)
-
-    def _copy_register_number(self, register_number: str) -> None:
-        """Copy register number to clipboard."""
-        from PyQt5.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        clipboard.setText(register_number)
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy text to the clipboard."""
+        QApplication.clipboard().setText(text)
 
     def save_breakpoints(self) -> None:
         """Save breakpoints and watchpoints to a file."""

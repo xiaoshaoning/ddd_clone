@@ -1,5 +1,8 @@
 # Usage Summary for DDD Clone
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 **Date:** 2026-02-24
 **Branch:** main (up to date with origin/main)
 **Project Status:** Clean working tree, ready for use

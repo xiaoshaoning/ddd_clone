@@ -1,5 +1,8 @@
 # DDD Clone Project - Development Summary
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 ## Project Overview
 DDD Clone is a Python-based graphical debugger frontend for GDB, providing a modern interface for debugging C/C++ programs with features inspired by the classic Data Display Debugger (DDD).
 

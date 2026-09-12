@@ -4,6 +4,7 @@ Unit tests for GDB controller.
 
 import unittest
 from unittest.mock import Mock, patch, MagicMock
+import queue
 import sys
 import os
 
@@ -423,6 +424,92 @@ class TestGDBController(unittest.TestCase):
         self.controller.gdb_process = None
         registers = self.controller.get_register_values()
         self.assertEqual(registers, [])
+
+    def test_parse_mi_output_record_types(self):
+        """Parse tokenized, untokenized, stream and prompt lines."""
+        parse = self.controller._parse_mi_output
+        self.assertEqual(parse('7^done,value="3"'), (7, '^', 'done,value="3"'))
+        self.assertEqual(parse('*stopped,reason="exited"'), (None, '*', 'stopped,reason="exited"'))
+        self.assertEqual(parse('~"hello\\n"'), (None, '~', '"hello\\n"'))
+        self.assertEqual(parse('=breakpoint-created,bkpt={}'), (None, '=', 'breakpoint-created,bkpt={}'))
+        self.assertEqual(parse('(gdb) '), (None, 'prompt', ''))
+        self.assertIsNone(parse(''))
+        self.assertIsNone(parse('not an MI line'))
+
+    def test_process_output_console_stream(self):
+        """Stream records are decoded and emitted as console text."""
+        received = []
+        self.controller.console_output.connect(received.append)
+        self.controller._process_output('~"$1 = 0\\n"')
+        self.assertEqual(received, ['$1 = 0\n'])
+        self.controller._process_output('&"break main\\n"')
+        self.assertEqual(received[-1], 'break main\n')
+
+    def test_process_output_error(self):
+        """Result error records are reported as console text."""
+        received = []
+        self.controller.console_output.connect(received.append)
+        self.controller._process_output('^error,msg="No symbol table"')
+        self.assertEqual(received, ['Error: No symbol table'])
+
+    def test_process_output_breakpoint_created(self):
+        """A breakpoint-created record emits its file and line."""
+        created = []
+        self.controller.breakpoint_created.connect(lambda f, l: created.append((f, l)))
+        self.controller._process_output(
+            '=breakpoint-created,bkpt={number="1",file="simple.c",'
+            'fullname="/tmp/simple.c",line="5",addr="0x1"}'
+        )
+        self.controller._process_output(
+            '^done,bkpt={number="2",file="simple.c",fullname="/tmp/simple.c",line="9"}'
+        )
+        self.assertEqual(created, [('simple.c', 5), ('simple.c', 9)])
+
+        # MI escapes backslashes; the emitted path must be decoded
+        self.controller._process_output(
+            '^done,bkpt={number="3",file="D:\\\\build\\\\simple.c",line="12"}'
+        )
+        self.assertEqual(created[-1], ('D:\\build\\simple.c', 12))
+
+    def test_process_output_breakpoint_hit_is_not_creation(self):
+        """A stopped record updates state but does not create a marker."""
+        created = []
+        states = []
+        self.controller.breakpoint_created.connect(lambda f, l: created.append((f, l)))
+        self.controller.state_changed.connect(states.append)
+        self.controller._process_output(
+            '*stopped,reason="breakpoint-hit",bkptno="1",frame={addr="0x1",'
+            'func="main",args=[],file="simple.c",fullname="/tmp/simple.c",line="5"}'
+        )
+        self.assertEqual(created, [])
+        self.assertEqual(states[-1]['state'], 'stopped')
+        self.assertEqual(states[-1]['file'], 'simple.c')
+        self.assertEqual(states[-1]['line'], 5)
+        self.assertEqual(states[-1]['function'], 'main')
+
+    def test_process_output_running_and_exit(self):
+        """Running and exited records update the state."""
+        states = []
+        self.controller.state_changed.connect(states.append)
+        self.controller._process_output('*running,thread-id="all"')
+        self.assertEqual(states[-1]['state'], 'running')
+        self.controller._process_output('*stopped,reason="exited-normally"')
+        self.assertEqual(states[-1]['state'], 'exited')
+        self.assertIsNone(states[-1]['line'])
+
+    def test_process_output_routes_tokenized_response(self):
+        """A tokenized result reaches the waiter for that token."""
+        response_queue = queue.Queue()
+        self.controller.response_queues[42] = response_queue
+        self.controller._process_output('42^done,value="3"')
+        self.assertEqual(response_queue.get_nowait(), ('^', 'done,value="3"'))
+
+    def test_process_output_ignores_non_mi(self):
+        """Plain text that is not an MI record is dropped."""
+        received = []
+        self.controller.console_output.connect(received.append)
+        self.controller._process_output('just some text')
+        self.assertEqual(received, [])
 
 
 if __name__ == '__main__':

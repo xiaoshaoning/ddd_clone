@@ -1,5 +1,8 @@
 # DDD Clone GUI测试覆盖分析报告
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 ## 概述
 本报告分析DDD Clone项目GUI组件的测试覆盖情况，识别测试缺口并提供改进建议。
 

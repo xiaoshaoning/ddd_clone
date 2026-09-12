@@ -1,5 +1,8 @@
 # DDD Clone GUI测试改进总结
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 ## 概述
 本项目完成了三个主要任务，显著提高了DDD Clone项目的GUI测试覆盖率和自动化程度。
 

@@ -1,5 +1,8 @@
 # DDD Clone 代码库分析与改进建议
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 **分析日期**: 2026-02-24
 **分析工具**: Claude Code
 **项目版本**: 当前代码库状态

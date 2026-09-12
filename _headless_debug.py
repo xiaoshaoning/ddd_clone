@@ -56,7 +56,7 @@ def snapshot(label):
 
 app = QApplication(sys.argv)
 gdb_controller = GDBController()
-gdb_controller.output_received.connect(lambda o: gdb_out.append(o))
+gdb_controller.console_output.connect(lambda o: gdb_out.append(o))
 window = MainWindow(gdb_controller)
 window.show()
 

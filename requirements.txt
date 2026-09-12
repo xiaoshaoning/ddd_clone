@@ -5,9 +5,6 @@
 # GUI framework
 PyQt5>=5.15.0
 
-# GDB integration
-pexpect>=4.8.0
-
 # Syntax highlighting
 pygments>=2.10.0
 
@@ -22,6 +19,3 @@ mypy>=0.910
 
 # Type stubs for better IDE support (optional)
 # types-PyQt5>=5.15.0  # Commented out - not available for Python 3.13
-
-# Optional: For enhanced debugging experience
-psutil>=5.8.0  # Process utilities

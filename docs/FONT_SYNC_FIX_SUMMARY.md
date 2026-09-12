@@ -1,5 +1,8 @@
 # 行号字体同步和垂直对齐修复总结
 
+> **Historical document.** Kept for reference only; some findings were fixed
+> after it was written. See `2026-09-11-design-review-aposd.md` for the current review.
+
 ## 问题描述
 用户报告使用Ctrl+调整字体大小时，行号区域的字体大小没有同步变化，导致行号和对应行不匹配。此外，调整字体大小后，左边行号比对应行的位置略高一点点，需要中心对齐。
 

@@ -8,7 +8,7 @@ import threading
 import queue
 import re
 import time
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Dict, List, Optional, Any, Tuple
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from .exceptions import (
@@ -19,14 +19,36 @@ from .exceptions import (
 )
 
 
+# C-string escapes used by GDB/MI stream records. Unknown escapes are
+# passed through without their backslash.
+_MI_ESCAPES = {
+    'n': '\n', 't': '\t', 'r': '\r', 'a': '\a', 'b': '\b',
+    'f': '\f', 'v': '\v', '"': '"', "'": "'", '\\': '\\',
+}
+
+
+def _unescape_mi_string(text: str) -> str:
+    """Decode the C-string escapes GDB/MI uses inside stream records."""
+    return re.sub(r'\\(.)', lambda m: _MI_ESCAPES.get(m.group(1), m.group(1)), text)
+
+
+def _mi_stream_text(content: str) -> str:
+    """Decode a stream record's content, dropping its surrounding quotes."""
+    if len(content) >= 2 and content.startswith('"') and content.endswith('"'):
+        content = content[1:-1]
+    return _unescape_mi_string(content)
+
+
 class GDBController(QObject):
     """
     Controller for managing GDB process and communication.
     """
 
-    # Signals for UI updates
+    # Signals for UI updates. The controller is the only reader of GDB/MI
+    # output, so what it emits is already decoded.
     state_changed = pyqtSignal(dict)
-    output_received = pyqtSignal(str)
+    console_output = pyqtSignal(str)           # user-facing GDB text
+    breakpoint_created = pyqtSignal(str, int)  # (file, line) as GDB reports it
 
     def __init__(self):
         super().__init__()
@@ -55,7 +77,9 @@ class GDBController(QObject):
         """
         try:
             # Start GDB process
-            cmd = ['gdb', '--interpreter=mi2']
+            # --quiet suppresses the human-mode startup banner at the source,
+            # so no output filtering is needed downstream.
+            cmd = ['gdb', '--quiet', '--interpreter=mi2']
             if program_path:
                 cmd.append(program_path)
 
@@ -78,7 +102,7 @@ class GDBController(QObject):
             return True
 
         except Exception as e:
-            self.output_received.emit(f"Failed to start GDB: {e}")
+            self.console_output.emit(f"Failed to start GDB: {e}")
             return False
 
     def _read_output(self) -> None:
@@ -91,111 +115,114 @@ class GDBController(QObject):
                     self._process_output(line)
             except (OSError, UnicodeDecodeError, TypeError, ValueError, RuntimeError) as e:
                 try:
-                    self.output_received.emit(f"Error reading GDB output: {e}")
+                    self.console_output.emit(f"Error reading GDB output: {e}")
                 except RuntimeError:
                     pass  # Controller is being torn down; just stop the thread
                 break
 
-    def _parse_mi_output(self, output: str) -> Optional[Tuple[Union[int, str], Optional[str], Optional[str]]]:
+    def _parse_mi_output(self, output: str) -> Optional[Tuple[Optional[int], str, str]]:
         """
-        Parse GDB/MI output line.
-        Returns (token, result_type, content) or None if not a tokenized response.
-        GDB/MI output formats:
-        token^result
-        token*async-output
-        token+async-output
-        token=async-output
-        (gdb)
+        Parse one line of GDB/MI output into (token, record_type, content).
+
+        The leading token is optional. Record types:
+            token^result              result record
+            token*async-output        async exec record
+            token+async-output        async status record
+            token=async-output        async notify record
+            ~"text" @"text" &"text"   console / target / log stream records
+        (gdb) is reported as (None, 'prompt', '').
+        Returns None when the line is not an MI record.
         """
         output = output.strip()
         if not output:
             return None
 
-        # Check for (gdb) prompt
         if output == '(gdb)':
-            return ('prompt', None, None)
+            return (None, 'prompt', '')
 
-        # Check for tokenized response: token^result, token*async, etc.
-        # Token is a number
-        match = re.match(r'^(\d+)([\^*=+])(.*)$', output)
+        match = re.match(r'^(\d+)?([\^*=+~@&])(.*)$', output)
         if match:
-            token = int(match.group(1))
-            result_type = match.group(2)  # ^, *, +, =
-            content = match.group(3)
-            return (token, result_type, content)
+            token = int(match.group(1)) if match.group(1) else None
+            return (token, match.group(2), match.group(3))
 
         return None
 
     def _process_output(self, output: str) -> None:
-        """Process GDB output and update state accordingly."""
-        # Emit raw output
-        self.output_received.emit(output)
-
-        # First, try to parse as MI response
+        """Decode one GDB/MI record and emit the resulting typed events."""
         parsed = self._parse_mi_output(output)
-        if parsed:
-            token, result_type, content = parsed
-            if token == 'prompt':
-                # Ignore prompt for now
-                pass
-            else:
-                # Put response in corresponding queue
-                with self.response_lock:
-                    if token in self.response_queues:
-                        self.response_queues[token].put((result_type, content))
-        else:
-            # Not a tokenized MI response, process for state changes
-            # Check for exited first, as exited messages may also contain 'stopped'
-            # Check for various forms of exit messages
-            exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
-            exit_match = re.search(exit_pattern, output)
+        if parsed is None:
+            return
 
-            if exit_match:
-                # Program has exited, clear line and file info
-                self.current_state['state'] = 'exited'
-                self.current_state['line'] = None
-                self.current_state['file'] = None
-                self.current_state['function'] = None
-                self.state_changed.emit(self.current_state.copy())
-            elif 'stopped' in output:
-                self._handle_stopped_state(output)
-            elif 'running' in output:
-                self.current_state['state'] = 'running'
-                self.state_changed.emit(self.current_state.copy())
+        token, record_type, content = parsed
+        if record_type == 'prompt':
+            return
 
-    def _handle_stopped_state(self, output: str) -> None:
-        """Handle stopped state and extract location information."""
-        # Check if this is actually an exit message
-        exit_pattern = r'reason="(exited|exit-normal|exited-normally|exited-signalled)"'
-        exit_match = re.search(exit_pattern, output)
+        # Hand tokenized responses to the synchronous waiter, if any.
+        if token is not None:
+            with self.response_lock:
+                response_queue = self.response_queues.get(token)
+            if response_queue is not None:
+                response_queue.put((record_type, content))
 
-        if exit_match:
-            # Program has exited, not stopped
-            self.current_state['state'] = 'exited'
-            self.current_state['line'] = None
-            self.current_state['file'] = None
-            self.current_state['function'] = None
+        if record_type in ('~', '@', '&'):
+            # Stream records carry user-facing text.
+            text = _mi_stream_text(content)
+            if text.strip():
+                self.console_output.emit(text)
+        elif record_type == '^' and content.startswith('error'):
+            match = re.search(r'msg="([^"]*)"', content)
+            self.console_output.emit("Error: " + (match.group(1) if match else 'unknown error'))
+        elif record_type in ('*', '^') and content.startswith('stopped'):
+            self._handle_stopped_state(content)
+        elif record_type in ('*', '^') and content.startswith('running'):
+            self.current_state['state'] = 'running'
+            self.state_changed.emit(self.current_state.copy())
+        elif record_type == '^' and content.startswith('done') and 'bkpt={' in content:
+            self._emit_breakpoint_created(content)
+        elif record_type == '=' and content.startswith('breakpoint-created'):
+            self._emit_breakpoint_created(content)
+
+    def _emit_breakpoint_created(self, content: str) -> None:
+        """Emit the source location of a breakpoint GDB just created."""
+        file_match = re.search(r'file="([^"]*)"', content)
+        line_match = re.search(r'line="(\d+)"', content)
+        if file_match and line_match:
+            self.breakpoint_created.emit(
+                _unescape_mi_string(file_match.group(1)), int(line_match.group(1))
+            )
+
+    def _handle_stopped_state(self, content: str) -> None:
+        """Update state from a stopped record's content (may report an exit)."""
+        state = self.current_state
+
+        if re.search(r'reason="(exited|exit-normal|exited-normally|exited-signalled)"', content):
+            state['state'] = 'exited'
+            state['line'] = None
+            state['file'] = None
+            state['function'] = None
         else:
             # Normal stopped state (e.g., breakpoint hit)
-            self.current_state['state'] = 'stopped'
-
-            # Extract file and line information
-            file_match = re.search(r'file="([^"]+)"', output)
-            line_match = re.search(r'line="(\d+)"', output)
-            func_match = re.search(r'func="([^"]+)"', output)
-
+            state['state'] = 'stopped'
+            file_match = re.search(r'file="([^"]+)"', content)
+            line_match = re.search(r'line="(\d+)"', content)
+            func_match = re.search(r'func="([^"]+)"', content)
             if file_match:
-                self.current_state['file'] = file_match.group(1)
+                state['file'] = file_match.group(1)
             if line_match:
-                self.current_state['line'] = int(line_match.group(1))
+                state['line'] = int(line_match.group(1))
             if func_match:
-                self.current_state['function'] = func_match.group(1)
+                state['function'] = func_match.group(1)
 
-        self.state_changed.emit(self.current_state.copy())
+        self.state_changed.emit(state.copy())
 
     def send_command(self, command: str) -> bool:
         """
         Send a command to GDB.
+
+        Reports only whether the command reached GDB, not whether GDB accepted
+        it: GDB answers asynchronously through the console_output and
+        breakpoint_created signals. Use send_mi_command_sync() when a caller
+        needs the reply.
 
         Args:
             command: GDB command to execute
@@ -211,7 +238,7 @@ class GDBController(QObject):
             self.gdb_process.stdin.flush()
             return True
         except (OSError, BrokenPipeError) as e:
-            self.output_received.emit(f"Failed to send command: {e}")
+            self.console_output.emit(f"Failed to send command: {e}")
             return False
 
     def run(self) -> bool:
@@ -262,12 +289,9 @@ class GDBController(QObject):
         if condition:
             cmd += f" -c {condition}"
 
-        # Send command and check for success
-        if self.send_command(cmd):
-            # The actual success/failure will be reported via output_received signal
-            # For now, we assume it succeeded unless we get an error response
-            return True
-        return False
+        # Send command and check for success. GDB confirms asynchronously:
+        # an error arrives as console_output, a success as breakpoint_created.
+        return self.send_command(cmd)
 
     def delete_breakpoint(self, breakpoint_id: int) -> bool:
         """
@@ -636,7 +660,7 @@ class GDBController(QObject):
                 self.gdb_process.wait(timeout=5)
             except Exception as e:
                 # Log the error but still attempt to kill the process
-                self.output_received.emit(f"Error during shutdown: {e}")
+                self.console_output.emit(f"Error during shutdown: {e}")
                 self.gdb_process.kill()
             finally:
                 self.gdb_process = None

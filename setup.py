@@ -8,7 +8,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "PyQt5>=5.15.0",
-        "pexpect>=4.8.0",
         "pygments>=2.10.0",
     ],
     python_requires=">=3.8",

@@ -219,20 +219,13 @@ def test_syntax_highlight_dropdown_button(qtbot):
     menu = window.syntax_highlight_button.menu()
     assert len(menu.actions()) > 0
 
-    # Test style selection
-    original_style = window.syntax_highlight_style
+    # Test style selection: the source viewer owns the style, the button mirrors it
+    original_style = window.source_viewer.highlight_style
     new_style = "friendly" if original_style != "friendly" else "tango"
-
-    # Mock the source viewer method
-    mock_source_viewer = window.source_viewer
-    mock_source_viewer.set_syntax_highlight_style = Mock(return_value=True)
 
     # Trigger style selection
     window._on_syntax_style_selected(new_style)
 
-    # Verify style was updated
-    assert window.syntax_highlight_style == new_style
+    # Verify the viewer applied the style and the button text followed
+    assert window.source_viewer.highlight_style == new_style
     assert f"Syntax: {new_style}" in window.syntax_highlight_button.text()
-
-    # Verify source viewer was called
-    mock_source_viewer.set_syntax_highlight_style.assert_called_once_with(new_style)
