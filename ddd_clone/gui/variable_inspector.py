@@ -52,6 +52,11 @@ class VariableInspector(QObject):
         self.watch_expressions: Dict[str, str] = {}  # expression -> value
 
     @staticmethod
+    def _is_struct_type(var_type: str) -> bool:
+        """Check if type string represents a struct, union or class."""
+        return var_type.startswith(('struct ', 'union ', 'class '))
+
+    @staticmethod
     def _is_array_type(var_type: str) -> bool:
         """Check if type string represents an array."""
         return '[' in var_type and ']' in var_type
@@ -276,7 +281,23 @@ class VariableInspector(QObject):
         # Handle arrays
         if self._is_array_type(variable.type):
             self._load_array_elements(variable)
-        # TODO: Handle structs and other composite types
+        # Handle structs, unions and classes
+        elif self._is_struct_type(variable.type):
+            self._load_struct_fields(variable)
+
+    def _load_struct_fields(self, variable: 'Variable') -> None:
+        """
+        Load the fields of a struct/union as children.
+
+        Args:
+            variable: Composite variable object
+        """
+        # Clear any existing children
+        variable.children.clear()
+
+        for field in self.gdb_controller.get_variable_children(variable.name):
+            variable.children.append(
+                Variable(field['name'], field['value'], field['type']))
 
     def _load_array_elements(self, variable: 'Variable') -> None:
         """

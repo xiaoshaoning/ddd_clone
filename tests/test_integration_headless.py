@@ -41,10 +41,10 @@ def _build_debug_exe():
 def debug_exe():
     if not _have('gdb'):
         pytest.skip('gdb not available')
-    if not os.path.exists(EXE) and not _have('gcc'):
+    if not _have('gcc'):
         pytest.skip('gcc not available to build the debug example')
-    if not os.path.exists(EXE):
-        _build_debug_exe()
+    # Always rebuild so the test never runs against a stale binary
+    _build_debug_exe()
     return EXE
 
 
@@ -60,6 +60,9 @@ def _wait_state(ctrl, state, timeout_ms=15000):
     start = time.time()
     while time.time() - start < timeout_ms / 1000.0:
         if ctrl.current_state['state'] == state:
+            # state_changed is emitted from the reader thread and delivered on
+            # the next event loop pass; pump so the UI reflects it too.
+            _pump(50)
             return True
         _pump(50)
     return False
@@ -112,12 +115,26 @@ def test_headless_gdb_session(qtbot, debug_exe):
     assert arr_item.childCount() == 5
     assert arr_item.child(0).text(0) == '[0]'
 
-    # 7. Step over a few lines without crashing
+    # 7. Expand a struct (struct Point origin) -> fields should fill in
+    origin_item = None
+    for i in range(window.variables_tree.topLevelItemCount()):
+        it = window.variables_tree.topLevelItem(i)
+        if it.text(0) == 'origin':
+            origin_item = it
+            break
+    assert origin_item is not None
+    origin_item.setExpanded(True)
+    _pump(400)
+    assert origin_item.childCount() == 2
+    assert [origin_item.child(i).text(0) for i in range(2)] == ['x', 'y']
+    assert origin_item.child(0).text(2) == 'int'
+
+    # 8. Step over a few lines without crashing
     for _ in range(5):
         gdb_controller.step_over()
         _pump(300)
     assert gdb_controller.current_state['state'] == 'stopped'
 
-    # 8. Tear down cleanly
+    # 9. Tear down cleanly
     gdb_controller.shutdown()
     assert gdb_controller.current_state['state'] == 'disconnected'

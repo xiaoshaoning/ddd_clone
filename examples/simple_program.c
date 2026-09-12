@@ -43,5 +43,14 @@ int main() {
 
     printf("Sum of array elements: %d\n", sum);
 
+    // Struct example
+    struct Point {
+        int x;
+        int y;
+    };
+    struct Point origin = {0, 0};
+
+    printf("Origin: (%d, %d)\n", origin.x, origin.y);
+
     return 0;
 }

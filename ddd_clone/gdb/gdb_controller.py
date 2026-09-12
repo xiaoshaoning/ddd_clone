@@ -648,6 +648,53 @@ class GDBController(QObject):
 
         return match.group(1)
 
+    def get_variable_children(self, expression: str) -> List[Dict[str, str]]:
+        """
+        List the children of a composite expression (struct fields, array
+        elements) using a GDB variable object.
+
+        A varobj is created, read once, and deleted again, so it is an
+        implementation detail of this call rather than state the caller owns.
+
+        Args:
+            expression: Expression naming a struct, union or array
+
+        Returns:
+            List of dicts with 'name', 'value', 'type' and 'numchild'
+        """
+        if not self.gdb_process or self.gdb_process.poll() is not None:
+            return []
+
+        try:
+            result_type, content = self.send_mi_command_sync(f"-var-create - * {expression}")
+            name_match = re.search(r'name="([^"]+)"', content)
+            if result_type != '^' or not content.startswith('done') or not name_match:
+                return []
+            variable_object = name_match.group(1)
+
+            try:
+                result_type, content = self.send_mi_command_sync(
+                    f"-var-list-children --all-values {variable_object}")
+            finally:
+                self.send_command(f"-var-delete {variable_object}")
+
+            if result_type != '^' or not content.startswith('done'):
+                return []
+        except GDBError:
+            return []
+
+        children = []
+        for entry in re.findall(r'child=\{([^}]*)\}', content):
+            fields = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', entry))
+            children.append({
+                # 'exp' is the field name as written in the source
+                'name': _unescape_mi_string(fields.get('exp') or fields.get('name', '')),
+                'value': _unescape_mi_string(fields.get('value', '')),
+                'type': _unescape_mi_string(fields.get('type', '')),
+                'numchild': fields.get('numchild', '0'),
+            })
+        return children
+
     def read_memory(self, address: int, size: int = 256) -> Optional[bytes]:
         """
         Read memory from address.

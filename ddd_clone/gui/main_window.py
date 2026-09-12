@@ -717,8 +717,9 @@ class MainWindow(QMainWindow):
             item.setText(2, var_type)
             item.setData(0, Qt.UserRole, name)
 
-            # Show an expand indicator for arrays (the only expandable type wired up)
-            if VariableInspector._is_array_type(var_type):
+            # Show an expand indicator for the composite types we can expand
+            if VariableInspector._is_array_type(var_type) or \
+                    VariableInspector._is_struct_type(var_type):
                 item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
 
     def _on_variable_expanded(self, item: QTreeWidgetItem) -> None:

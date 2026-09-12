@@ -397,3 +397,30 @@ def test_resolve_source_path_falls_back_to_basename(qtbot, tmp_path):
 
     # Nothing on disk to resolve
     assert window._resolve_source_path({'file': 'nowhere.c'}) is None
+
+
+def test_struct_expansion_in_variables_tree(qtbot):
+    """A struct variable is expandable and shows its fields."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_variables.return_value = [
+        {'name': 'p', 'value': '{x = 1, y = 2}', 'type': 'struct Point'},
+    ]
+    mock_gdb.get_variable_children.return_value = [
+        {'name': 'x', 'value': '1', 'type': 'int', 'numchild': '0'},
+        {'name': 'y', 'value': '2', 'type': 'int', 'numchild': '0'},
+    ]
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window._update_variables_tree()
+
+    item = window.variables_tree.topLevelItem(0)
+    assert item.text(0) == 'p'
+
+    # Expanding the struct pulls its fields in
+    item.setExpanded(True)
+    assert item.childCount() == 2
+    assert item.child(0).text(0) == 'x'
+    assert item.child(1).text(1) == '2'
+    assert item.child(1).text(2) == 'int'

@@ -277,6 +277,38 @@ class TestGDBController(unittest.TestCase):
         self.assertIsNone(result)
 
     @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variable_children(self, mock_send_mi):
+        """Children come from a varobj that is created and then deleted."""
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+        self.controller.send_command = Mock(return_value=True)
+        mock_send_mi.side_effect = [
+            ('^', 'done,name="var1",numchild="2",value="{...}",type="struct Point"'),
+            ('^', 'done,numchild="2",children=[child={name="var1.x",exp="x",'
+                  'numchild="0",value="1",type="int"},child={name="var1.y",'
+                  'exp="y",numchild="0",value="2",type="int"}],has_more="0"'),
+        ]
+
+        children = self.controller.get_variable_children('p')
+
+        self.assertEqual(children, [
+            {'name': 'x', 'value': '1', 'type': 'int', 'numchild': '0'},
+            {'name': 'y', 'value': '2', 'type': 'int', 'numchild': '0'},
+        ])
+        mock_send_mi.assert_any_call('-var-create - * p')
+        mock_send_mi.assert_any_call('-var-list-children --all-values var1')
+        self.controller.send_command.assert_called_once_with('-var-delete var1')
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_get_variable_children_rejects_bad_expression(self, mock_send_mi):
+        """An expression GDB cannot make a varobj for yields no children."""
+        self.controller.gdb_process = Mock()
+        self.controller.gdb_process.poll.return_value = None
+        mock_send_mi.return_value = ('^', 'error,msg="No symbol nothere"')
+
+        self.assertEqual(self.controller.get_variable_children('nothere'), [])
+
+    @patch.object(GDBController, 'send_mi_command_sync')
     def test_read_memory(self, mock_send_mi):
         """Test reading memory."""
         mock_response = ('^', 'done,memory=[{addr="0x1000",data=["0x41","0x42","0x43"]}]')

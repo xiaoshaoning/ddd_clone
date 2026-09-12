@@ -235,6 +235,44 @@ class TestVariableInspector(unittest.TestCase):
         self.assertEqual(len(variables[1].children), 1)
         self.assertEqual(variables[1].children[0].name, "[0]")
 
+    def test_is_struct_type(self):
+        """Struct, union and class types are recognised as composite."""
+        self.assertTrue(VariableInspector._is_struct_type("struct Point"))
+        self.assertTrue(VariableInspector._is_struct_type("union Value"))
+        self.assertTrue(VariableInspector._is_struct_type("class Widget"))
+        self.assertFalse(VariableInspector._is_struct_type("int"))
+        self.assertFalse(VariableInspector._is_struct_type("int [5]"))
+
+    def test_load_struct_fields(self):
+        """Expanding a struct loads its fields from GDB."""
+        self.mock_gdb.get_variable_children.return_value = [
+            {'name': 'x', 'value': '1', 'type': 'int', 'numchild': '0'},
+            {'name': 'y', 'value': '2', 'type': 'int', 'numchild': '0'},
+        ]
+        var = Variable('p', '{x = 1, y = 2}', 'struct Point')
+        self.inspector.local_variables = [var]
+
+        self.assertTrue(self.inspector.expand_variable('p'))
+
+        self.mock_gdb.get_variable_children.assert_called_once_with('p')
+        self.assertEqual([c.name for c in var.children], ['x', 'y'])
+        self.assertEqual(var.children[1].value, '2')
+        self.assertEqual(var.children[0].type, 'int')
+
+    def test_load_array_elements(self):
+        """Array expansion still evaluates elements one by one."""
+        self.mock_gdb.evaluate_expression.side_effect = ['4', '5']
+        var = Variable('arr', '{...}', 'int [2]')
+        self.inspector.local_variables = [var]
+
+        self.assertTrue(self.inspector.expand_variable('arr'))
+
+        self.assertEqual([c.name for c in var.children], ['[0]', '[1]'])
+        self.assertEqual([c.value for c in var.children], ['4', '5'])
+        self.assertEqual(var.children[0].type, 'int')
+        # Arrays use the element-wise path, not the varobj path
+        self.mock_gdb.get_variable_children.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
