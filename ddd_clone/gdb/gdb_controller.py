@@ -269,9 +269,9 @@ class GDBController(QObject):
         """Kill the program being debugged."""
         return self.send_command("kill")
 
-    def set_breakpoint(self, file: str, line: int, condition: Optional[str] = None) -> bool:
+    def set_breakpoint(self, file: str, line: int, condition: Optional[str] = None) -> Optional[int]:
         """
-        Set a breakpoint.
+        Insert a breakpoint and wait for GDB to confirm it.
 
         Args:
             file: Source file path
@@ -279,7 +279,7 @@ class GDBController(QObject):
             condition: Optional breakpoint condition
 
         Returns:
-            bool: True if breakpoint was set successfully
+            GDB's breakpoint number, or None if GDB rejected the breakpoint
         """
         # GDB matches source files by the name recorded in the debug info,
         # which may differ from the current absolute path if the project was
@@ -289,21 +289,35 @@ class GDBController(QObject):
         if condition:
             cmd += f" -c {condition}"
 
-        # Send command and check for success. GDB confirms asynchronously:
-        # an error arrives as console_output, a success as breakpoint_created.
-        return self.send_command(cmd)
+        try:
+            result_type, content = self.send_mi_command_sync(cmd)
+        except GDBError:
+            return None
+        if result_type != '^' or not content.startswith('done'):
+            return None
 
-    def delete_breakpoint(self, breakpoint_id: int) -> bool:
+        match = re.search(r'bkpt=\{[^}]*?number="(\d+)"', content)
+        return int(match.group(1)) if match else None
+
+    def enable_breakpoint(self, breakpoint_number: int) -> bool:
+        """Enable a breakpoint, identified by GDB's breakpoint number."""
+        return self.send_command(f"-break-enable {breakpoint_number}")
+
+    def disable_breakpoint(self, breakpoint_number: int) -> bool:
+        """Disable a breakpoint, identified by GDB's breakpoint number."""
+        return self.send_command(f"-break-disable {breakpoint_number}")
+
+    def delete_breakpoint(self, breakpoint_number: int) -> bool:
         """
         Delete a breakpoint.
 
         Args:
-            breakpoint_id: Breakpoint ID
+            breakpoint_number: GDB's breakpoint number
 
         Returns:
-            bool: True if breakpoint was deleted successfully
+            bool: True if the delete command was sent successfully
         """
-        return self.send_command(f"-break-delete {breakpoint_id}")
+        return self.send_command(f"-break-delete {breakpoint_number}")
 
     def set_watchpoint(self, expression: str, watch_type: str = "write") -> bool:
         """
@@ -574,12 +588,28 @@ class GDBController(QObject):
             frame_dict = {}
             pattern = r'(\w+)="([^"]*)"'
             for key, value in re.findall(pattern, entry):
-                frame_dict[key] = value
+                frame_dict[key] = _unescape_mi_string(value)
 
             if frame_dict:
                 frames.append(frame_dict)
 
         return frames
+
+    def select_frame(self, level: int) -> bool:
+        """
+        Select a stack frame.
+
+        Args:
+            level: Frame level, where 0 is the innermost frame
+
+        Returns:
+            bool: True if GDB accepted the selection
+        """
+        try:
+            result_type, content = self.send_mi_command_sync(f"-stack-select-frame {level}")
+        except GDBError:
+            return False
+        return result_type == '^' and content.startswith('done')
 
     def evaluate_expression(self, expression: str) -> Optional[str]:
         """

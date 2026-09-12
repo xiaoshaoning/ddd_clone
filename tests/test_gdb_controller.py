@@ -108,27 +108,55 @@ class TestGDBController(unittest.TestCase):
         actual_commands = [call[0][0] for call in self.controller.send_command.call_args_list]
         self.assertEqual(actual_commands, expected_commands)
 
-    def test_set_breakpoint(self):
-        """Test setting breakpoints."""
-        self.controller.send_command = Mock(return_value=True)
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_breakpoint(self, mock_send_mi):
+        """Setting breakpoints returns GDB's breakpoint number."""
+        mock_send_mi.return_value = ('^', 'done,bkpt={number="3",type="breakpoint",line="10"}')
 
-        # Test setting breakpoint without condition
+        # Without condition
         result = self.controller.set_breakpoint("test.c", 10)
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-insert test.c:10")
+        self.assertEqual(result, 3)
+        mock_send_mi.assert_called_with("-break-insert test.c:10")
 
-        # Test setting breakpoint with condition
+        # With condition
         result = self.controller.set_breakpoint("test.c", 20, "i > 5")
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-insert test.c:20 -c i > 5")
+        self.assertEqual(result, 3)
+        mock_send_mi.assert_called_with("-break-insert test.c:20 -c i > 5")
 
-    def test_set_breakpoint_uses_basename(self):
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_breakpoint_uses_basename(self, mock_send_mi):
         """GDB should receive the source basename, not the current full path."""
-        self.controller.send_command = Mock(return_value=True)
+        mock_send_mi.return_value = ('^', 'done,bkpt={number="1",line="22"}')
 
         result = self.controller.set_breakpoint("D:/Projects/codes/x/simple_program.c", 22)
-        self.assertTrue(result)
-        self.controller.send_command.assert_called_with("-break-insert simple_program.c:22")
+        self.assertEqual(result, 1)
+        mock_send_mi.assert_called_with("-break-insert simple_program.c:22")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_set_breakpoint_rejected(self, mock_send_mi):
+        """A breakpoint GDB rejects yields no number."""
+        mock_send_mi.return_value = ('^', 'error,msg="No line 99 in file test.c"')
+        self.assertIsNone(self.controller.set_breakpoint("test.c", 99))
+
+    def test_enable_disable_breakpoint(self):
+        """Enable and disable address the breakpoint by GDB's number."""
+        self.controller.send_command = Mock(return_value=True)
+
+        self.assertTrue(self.controller.enable_breakpoint(2))
+        self.controller.send_command.assert_called_with("-break-enable 2")
+
+        self.assertTrue(self.controller.disable_breakpoint(2))
+        self.controller.send_command.assert_called_with("-break-disable 2")
+
+    @patch.object(GDBController, 'send_mi_command_sync')
+    def test_select_frame(self, mock_send_mi):
+        """Selecting a frame reports whether GDB accepted it."""
+        mock_send_mi.return_value = ('^', 'done')
+        self.assertTrue(self.controller.select_frame(2))
+        mock_send_mi.assert_called_with("-stack-select-frame 2")
+
+        mock_send_mi.return_value = ('^', 'error,msg="No frame at level 9"')
+        self.assertFalse(self.controller.select_frame(9))
 
     def test_delete_breakpoint(self):
         """Test deleting breakpoints."""
@@ -207,7 +235,7 @@ class TestGDBController(unittest.TestCase):
     @patch.object(GDBController, 'send_mi_command_sync')
     def test_get_call_stack(self, mock_send_mi):
         """Test getting call stack."""
-        mock_response = ('^', 'done,stack=[frame={level="0",addr="0x1234",func="main",file="test.c",line="10"},frame={level="1",addr="0x5678",func="foo",file="test.c",line="20"}]')
+        mock_response = ('^', 'done,stack=[frame={level="0",addr="0x1234",func="main",file="test.c",line="10"},frame={level="1",addr="0x5678",func="foo",file="D:\\\\build\\\\test.c",fullname="D:\\\\build\\\\test.c",line="20"}]')
         mock_send_mi.return_value = mock_response
         self.controller.gdb_process = Mock()
         self.controller.gdb_process.poll.return_value = None
@@ -220,6 +248,9 @@ class TestGDBController(unittest.TestCase):
         self.assertEqual(frames[0]['file'], 'test.c')
         self.assertEqual(frames[0]['line'], '10')
         self.assertEqual(frames[1]['level'], '1')
+        # MI escapes backslashes; paths must come back usable
+        self.assertEqual(frames[1]['file'], 'D:\\build\\test.c')
+        self.assertEqual(frames[1]['fullname'], 'D:\\build\\test.c')
         mock_send_mi.assert_called_with("-stack-list-frames")
 
     @patch.object(GDBController, 'send_mi_command_sync')

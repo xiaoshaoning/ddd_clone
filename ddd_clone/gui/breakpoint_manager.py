@@ -11,11 +11,13 @@ class Breakpoint:
     Represents a single breakpoint.
     """
 
-    def __init__(self, breakpoint_id: int, file: str, line: int, condition: Optional[str] = None):
+    def __init__(self, breakpoint_id: int, file: str, line: int,
+                 condition: Optional[str] = None, gdb_number: Optional[int] = None):
         self.breakpoint_id = breakpoint_id
         self.file = file
         self.line = line
         self.condition = condition
+        self.gdb_number = gdb_number  # GDB's own breakpoint number
         self.enabled = True
 
     def __str__(self):
@@ -102,16 +104,16 @@ class BreakpointManager(QObject):
         breakpoint_id = self.next_breakpoint_id
         self.next_breakpoint_id += 1
 
-        breakpoint = Breakpoint(breakpoint_id, file, line, condition)
-
-        # Set breakpoint in GDB
-        if self.gdb_controller.set_breakpoint(file, line, condition):
-            self.breakpoints[breakpoint_id] = breakpoint
-            self.breakpoint_added.emit(breakpoint)
-            return breakpoint
-        else:
-            # GDB failed to set the breakpoint - don't add it to our internal state
+        # Set breakpoint in GDB; it assigns the number we must use later
+        gdb_number = self.gdb_controller.set_breakpoint(file, line, condition)
+        if gdb_number is None:
+            # GDB rejected the breakpoint - don't add it to our internal state
             return None
+
+        breakpoint = Breakpoint(breakpoint_id, file, line, condition, gdb_number)
+        self.breakpoints[breakpoint_id] = breakpoint
+        self.breakpoint_added.emit(breakpoint)
+        return breakpoint
 
     def remove_breakpoint(self, breakpoint_id: int) -> bool:
         """
@@ -126,13 +128,16 @@ class BreakpointManager(QObject):
         if breakpoint_id not in self.breakpoints:
             return False
 
-        # Remove breakpoint from GDB
-        if self.gdb_controller.delete_breakpoint(breakpoint_id):
-            del self.breakpoints[breakpoint_id]
-            self.breakpoint_removed.emit(breakpoint_id)
-            return True
+        breakpoint = self.breakpoints[breakpoint_id]
 
-        return False
+        # Remove breakpoint from GDB, addressed by GDB's own number
+        if breakpoint.gdb_number is not None:
+            if not self.gdb_controller.delete_breakpoint(breakpoint.gdb_number):
+                return False
+
+        del self.breakpoints[breakpoint_id]
+        self.breakpoint_removed.emit(breakpoint_id)
+        return True
 
     def toggle_breakpoint(self, breakpoint_id: int) -> bool:
         """
@@ -148,20 +153,18 @@ class BreakpointManager(QObject):
             return False
 
         breakpoint = self.breakpoints[breakpoint_id]
-        breakpoint.enabled = not breakpoint.enabled
+        if breakpoint.gdb_number is None:
+            return False
 
-        # TODO: Implement enabling/disabling in GDB
-        # For now, we'll remove and re-add the breakpoint
+        # GDB can enable/disable a breakpoint in place; the number is stable.
         if breakpoint.enabled:
-            # Re-enable by re-adding
-            self.gdb_controller.set_breakpoint(
-                breakpoint.file,
-                breakpoint.line,
-                breakpoint.condition
-            )
+            if not self.gdb_controller.disable_breakpoint(breakpoint.gdb_number):
+                return False
+            breakpoint.enabled = False
         else:
-            # Disable by removing
-            self.gdb_controller.delete_breakpoint(breakpoint_id)
+            if not self.gdb_controller.enable_breakpoint(breakpoint.gdb_number):
+                return False
+            breakpoint.enabled = True
 
         self.breakpoint_updated.emit(breakpoint)
         return True
@@ -182,18 +185,25 @@ class BreakpointManager(QObject):
 
         breakpoint = self.breakpoints[breakpoint_id]
         old_condition = breakpoint.condition
-        breakpoint.condition = condition
 
-        # Update breakpoint in GDB by removing and re-adding
-        self.gdb_controller.delete_breakpoint(breakpoint_id)
-        if self.gdb_controller.set_breakpoint(breakpoint.file, breakpoint.line, condition):
-            self.breakpoint_updated.emit(breakpoint)
-            return True
-        else:
-            # Restore old condition if update failed
-            breakpoint.condition = old_condition
-            self.gdb_controller.set_breakpoint(breakpoint.file, breakpoint.line, old_condition)
+        # GDB cannot change a condition in place: drop and re-insert.
+        if breakpoint.gdb_number is not None:
+            self.gdb_controller.delete_breakpoint(breakpoint.gdb_number)
+
+        gdb_number = self.gdb_controller.set_breakpoint(
+            breakpoint.file, breakpoint.line, condition)
+        if gdb_number is None:
+            # Restore the old breakpoint and condition
+            breakpoint.gdb_number = self.gdb_controller.set_breakpoint(
+                breakpoint.file, breakpoint.line, old_condition)
             return False
+
+        breakpoint.condition = condition
+        breakpoint.gdb_number = gdb_number
+        if not breakpoint.enabled:
+            self.gdb_controller.disable_breakpoint(gdb_number)
+        self.breakpoint_updated.emit(breakpoint)
+        return True
 
     def get_breakpoint(self, breakpoint_id: int) -> Optional[Breakpoint]:
         """
@@ -293,11 +303,14 @@ class BreakpointManager(QObject):
                 # Create breakpoint
                 bp = Breakpoint(bp_id, file, line, condition)
                 bp.enabled = enabled
-                self.breakpoints[bp_id] = bp
 
-                # Set in GDB if enabled
-                if enabled and self.gdb_controller:
-                    self.gdb_controller.set_breakpoint(file, line, condition)
+                # Insert into GDB, then apply the saved disabled state
+                if self.gdb_controller:
+                    bp.gdb_number = self.gdb_controller.set_breakpoint(file, line, condition)
+                    if bp.gdb_number is not None and not enabled:
+                        self.gdb_controller.disable_breakpoint(bp.gdb_number)
+
+                self.breakpoints[bp_id] = bp
 
             # Update next breakpoint ID
             if self.breakpoints:

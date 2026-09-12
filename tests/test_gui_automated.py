@@ -140,7 +140,7 @@ def test_breakpoint_manager_gui(qtbot):
 
     # Mock GDB controller
     mock_gdb = Mock(spec=GDBController)
-    mock_gdb.set_breakpoint = Mock(return_value=True)
+    mock_gdb.set_breakpoint = Mock(return_value=1)
     mock_gdb.delete_breakpoint = Mock(return_value=True)
 
     # Create breakpoint manager
@@ -365,7 +365,7 @@ def test_demo_complete_app(qtbot):
     mock_gdb.state_changed = Mock()
     mock_gdb.console_output = Mock()
     mock_gdb.start_gdb = Mock(return_value=True)
-    mock_gdb.set_breakpoint = Mock(return_value=True)
+    mock_gdb.set_breakpoint = Mock(return_value=1)
 
     # Create main window (equivalent to test_complete.py lines 19-26)
     window = MainWindow(mock_gdb)
@@ -425,7 +425,7 @@ def test_breakpoint_mouse_click(qtbot):
     mock_gdb.current_state = {'state': 'disconnected'}
     mock_gdb.state_changed = Mock()
     mock_gdb.console_output = Mock()
-    mock_gdb.set_breakpoint = Mock(return_value=True)
+    mock_gdb.set_breakpoint = Mock(return_value=1)
     mock_gdb.delete_breakpoint = Mock(return_value=True)
 
     # Create main window

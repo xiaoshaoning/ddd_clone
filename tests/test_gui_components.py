@@ -229,3 +229,73 @@ def test_syntax_highlight_dropdown_button(qtbot):
     # Verify the viewer applied the style and the button text followed
     assert window.source_viewer.highlight_style == new_style
     assert f"Syntax: {new_style}" in window.syntax_highlight_button.text()
+
+def test_call_stack_tree_population(qtbot):
+    """The call stack tree shows the frames GDB reports."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.get_call_stack.return_value = [
+        {'level': '0', 'func': 'factorial', 'file': 'simple_program.c',
+         'fullname': 'D:\\build\\simple_program.c', 'line': '9'},
+        {'level': '1', 'func': 'main', 'file': 'simple_program.c',
+         'fullname': 'D:\\build\\simple_program.c', 'line': '29'},
+    ]
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window._update_call_stack_tree()
+
+    assert window.call_stack_tree.topLevelItemCount() == 2
+    assert window.call_stack_tree.topLevelItem(0).text(0) == 'factorial'
+    assert window.call_stack_tree.topLevelItem(1).text(0) == 'main'
+    assert window.call_stack_tree.topLevelItem(1).text(2) == '1'
+    info = window.call_stack_tree.topLevelItem(1).data(0, Qt.UserRole)
+    assert info == {'level': 1, 'file': 'D:\\build\\simple_program.c', 'line': 29}
+
+
+def test_call_stack_frame_activation(qtbot, tmp_path):
+    """Activating a frame selects it in GDB and shows its source line."""
+    source = tmp_path / 'frame.c'
+    source.write_text('int main(void) { return 0; }\n')
+
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.select_frame = Mock(return_value=True)
+    mock_gdb.get_call_stack.return_value = [
+        {'level': '1', 'func': 'main', 'file': 'frame.c',
+         'fullname': str(source), 'line': '1'},
+    ]
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    window._update_call_stack_tree()
+
+    window._on_call_stack_frame_activated(window.call_stack_tree.topLevelItem(0), 0)
+
+    mock_gdb.select_frame.assert_called_once_with(1)
+    assert window.source_viewer.current_file == str(source)
+    assert window.source_viewer.current_line == 1
+
+
+def test_breakpoints_tree_and_delete(qtbot):
+    """The breakpoints tree reflects the manager and supports deletion."""
+    mock_gdb = Mock(spec=GDBController)
+    mock_gdb.current_state = {'state': 'stopped'}
+    mock_gdb.set_breakpoint = Mock(return_value=4)
+    mock_gdb.delete_breakpoint = Mock(return_value=True)
+
+    window = MainWindow(mock_gdb)
+    qtbot.addWidget(window)
+    bp = window.breakpoint_manager.add_breakpoint('simple_program.c', 22)
+    assert bp is not None
+
+    # The breakpoint_added signal refreshes the tree
+    assert window.breakpoints_tree.topLevelItemCount() == 1
+    item = window.breakpoints_tree.topLevelItem(0)
+    assert item.text(0) == 'simple_program.c'
+    assert item.text(1) == '22'
+    assert item.text(3) == 'Yes'
+
+    window._delete_breakpoint(bp.breakpoint_id)
+    mock_gdb.delete_breakpoint.assert_called_once_with(4)
+    assert window.breakpoints_tree.topLevelItemCount() == 0

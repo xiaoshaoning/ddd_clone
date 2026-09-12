@@ -24,6 +24,7 @@ class TestBreakpoint(unittest.TestCase):
         self.assertEqual(bp.file, "test.c")
         self.assertEqual(bp.line, 10)
         self.assertEqual(bp.condition, "i > 5")
+        self.assertEqual(bp.gdb_number, None)
         self.assertTrue(bp.enabled)
 
     def test_breakpoint_string_representation(self):
@@ -62,8 +63,10 @@ class TestBreakpointManager(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.mock_gdb = Mock()
-        self.mock_gdb.set_breakpoint.return_value = True
+        self.mock_gdb.set_breakpoint.return_value = 1
         self.mock_gdb.delete_breakpoint.return_value = True
+        self.mock_gdb.enable_breakpoint.return_value = True
+        self.mock_gdb.disable_breakpoint.return_value = True
 
         self.manager = BreakpointManager(self.mock_gdb)
 
@@ -77,8 +80,9 @@ class TestBreakpointManager(unittest.TestCase):
         self.assertEqual(bp.line, 10)
         self.assertEqual(bp.condition, "i > 5")
 
-        # Verify GDB was called
+        # Verify GDB was called and its number was recorded
         self.mock_gdb.set_breakpoint.assert_called_once_with("test.c", 10, "i > 5")
+        self.assertEqual(bp.gdb_number, 1)
 
         # Verify breakpoint is stored
         self.assertIn(bp.breakpoint_id, self.manager.breakpoints)
@@ -98,7 +102,7 @@ class TestBreakpointManager(unittest.TestCase):
 
     def test_add_breakpoint_failure(self):
         """Test breakpoint addition failure."""
-        self.mock_gdb.set_breakpoint.return_value = False
+        self.mock_gdb.set_breakpoint.return_value = None
 
         bp = self.manager.add_breakpoint("test.c", 10)
 
@@ -119,7 +123,16 @@ class TestBreakpointManager(unittest.TestCase):
         # Verify removal
         self.assertTrue(result)
         self.assertNotIn(bp_id, self.manager.breakpoints)
-        self.mock_gdb.delete_breakpoint.assert_called_with(bp_id)
+        # GDB is addressed by its own breakpoint number, not our id
+        self.mock_gdb.delete_breakpoint.assert_called_with(bp.gdb_number)
+
+    def test_remove_breakpoint_without_gdb_number(self):
+        """A breakpoint GDB never accepted is dropped locally."""
+        bp = Breakpoint(1, "test.c", 10, None, None)
+        self.manager.breakpoints[1] = bp
+
+        self.assertTrue(self.manager.remove_breakpoint(1))
+        self.mock_gdb.delete_breakpoint.assert_not_called()
 
     def test_remove_breakpoint_nonexistent(self):
         """Test removing nonexistent breakpoint."""
@@ -131,27 +144,31 @@ class TestBreakpointManager(unittest.TestCase):
         self.mock_gdb.delete_breakpoint.assert_not_called()
 
     def test_toggle_breakpoint(self):
-        """Test breakpoint toggling."""
+        """Test breakpoint toggling switches it in GDB by number."""
         # Add a breakpoint
         bp = self.manager.add_breakpoint("test.c", 10)
         self.assertTrue(bp.enabled)
 
-        # Toggle breakpoint
+        # Toggle breakpoint off
         result = self.manager.toggle_breakpoint(bp.breakpoint_id)
 
         # Verify toggling
         self.assertTrue(result)
         self.assertFalse(bp.enabled)
+        self.mock_gdb.disable_breakpoint.assert_called_once_with(bp.gdb_number)
+        self.mock_gdb.set_breakpoint.assert_called_once()  # no re-insert
 
-        # Toggle back
+        # Toggle back on
         result = self.manager.toggle_breakpoint(bp.breakpoint_id)
         self.assertTrue(result)
         self.assertTrue(bp.enabled)
+        self.mock_gdb.enable_breakpoint.assert_called_once_with(bp.gdb_number)
 
     def test_update_breakpoint_condition(self):
-        """Test updating breakpoint condition."""
+        """Test updating breakpoint condition re-inserts and re-captures the number."""
         # Add a breakpoint
         bp = self.manager.add_breakpoint("test.c", 10)
+        self.mock_gdb.set_breakpoint.return_value = 7
 
         # Update condition
         result = self.manager.update_breakpoint_condition(bp.breakpoint_id, "i == 0")
@@ -159,6 +176,8 @@ class TestBreakpointManager(unittest.TestCase):
         # Verify update
         self.assertTrue(result)
         self.assertEqual(bp.condition, "i == 0")
+        self.assertEqual(bp.gdb_number, 7)
+        self.mock_gdb.delete_breakpoint.assert_called_once_with(1)
 
     def test_get_breakpoints(self):
         """Test getting all breakpoints."""

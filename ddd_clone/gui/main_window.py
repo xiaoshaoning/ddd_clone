@@ -115,8 +115,10 @@ class MainWindow(QMainWindow):
 
         # Breakpoints tab
         self.breakpoints_tree = QTreeWidget()
-        self.breakpoints_tree.setHeaderLabels(["File", "Line", "Condition"])
+        self.breakpoints_tree.setHeaderLabels(["File", "Line", "Condition", "Enabled"])
         self.breakpoints_tree.setFont(QFont("Arial", 18))  # Larger font
+        self.breakpoints_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.breakpoints_tree.customContextMenuRequested.connect(self._show_breakpoints_context_menu)
         tab_widget.addTab(self.breakpoints_tree, "Breakpoints")
 
         # Watchpoints tab
@@ -349,9 +351,15 @@ class MainWindow(QMainWindow):
         self.source_viewer.variable_hovered.connect(self.handle_variable_hover)
 
         # Connect breakpoint manager signals
+        self.breakpoint_manager.breakpoint_added.connect(self._update_breakpoints_tree)
+        self.breakpoint_manager.breakpoint_removed.connect(self._update_breakpoints_tree)
+        self.breakpoint_manager.breakpoint_updated.connect(self._update_breakpoints_tree)
         self.breakpoint_manager.watchpoint_added.connect(self._update_watchpoints_tree)
         self.breakpoint_manager.watchpoint_removed.connect(self._update_watchpoints_tree)
         self.breakpoint_manager.watchpoint_updated.connect(self._update_watchpoints_tree)
+
+        # Connect call stack navigation
+        self.call_stack_tree.itemDoubleClicked.connect(self._on_call_stack_frame_activated)
 
         # Connect variable tree expansion for composite types
         self.variables_tree.itemExpanded.connect(self._on_variable_expanded)
@@ -436,15 +444,17 @@ class MainWindow(QMainWindow):
         else:
             # Clear highlight when program exits or no valid line info
             self.source_viewer.clear_all_highlights()
+            self.call_stack_tree.clear()
             if 'file' in state_info and state_info['file']:
                 self.current_file_label.setText(f"{state_info['file']}:??")
             else:
                 self.current_file_label.setText("No file loaded")
 
-        # Update registers and variables when program is stopped
+        # Update registers, variables and call stack when program is stopped
         if state == 'stopped':
             self._update_registers_tree()
             self._update_variables_tree()
+            self._update_call_stack_tree()
 
     def _append_console_output(self, text: str) -> None:
         """Append decoded GDB console text to the output area."""
@@ -456,16 +466,93 @@ class MainWindow(QMainWindow):
         cursor.movePosition(cursor.End)
         self.gdb_output_text.setTextCursor(cursor)
 
-    def _add_breakpoint_visual_marker(self, file_path: str, line_number: int) -> None:
-        """Add a visual marker if GDB reports the loaded source file."""
+    def _is_current_source(self, file_path: str) -> bool:
+        """True if file_path names the source file currently on screen."""
         current_file = getattr(self.source_viewer, 'current_file', None)
         if not current_file:
-            return
+            return False
         # GDB may report an absolute path with either slash direction; compare
-        # basenames so the marker lands on the source that is on screen.
-        if os.path.basename(file_path.replace('\\', '/')) == \
-                os.path.basename(current_file.replace('\\', '/')):
+        # basenames so paths resolve regardless of how GDB rendered them.
+        return os.path.basename(file_path.replace('\\', '/')) == \
+            os.path.basename(current_file.replace('\\', '/'))
+
+    def _add_breakpoint_visual_marker(self, file_path: str, line_number: int) -> None:
+        """Add a visual marker if GDB reports the loaded source file."""
+        if self._is_current_source(file_path):
             self.source_viewer.add_breakpoint_marker(line_number)
+
+    def _update_breakpoints_tree(self) -> None:
+        """Update the breakpoints tree with current breakpoints."""
+        self.breakpoints_tree.clear()
+        for bp in self.breakpoint_manager.get_breakpoints():
+            item = QTreeWidgetItem(self.breakpoints_tree)
+            item.setText(0, os.path.basename(bp.file))
+            item.setText(1, str(bp.line))
+            item.setText(2, bp.condition or "")
+            item.setText(3, "Yes" if bp.enabled else "No")
+            # Store breakpoint ID in the item
+            item.setData(0, Qt.UserRole, bp.breakpoint_id)
+
+    def _update_call_stack_tree(self) -> None:
+        """Update the call stack tree with the frames GDB reports."""
+        self.call_stack_tree.clear()
+        for frame in self.gdb_controller.get_call_stack():
+            item = QTreeWidgetItem(self.call_stack_tree)
+            file_path = frame.get('file', '')
+            item.setText(0, frame.get('func', '??'))
+            item.setText(1, os.path.basename(file_path.replace('\\', '/')))
+            item.setText(2, frame.get('level', ''))
+            # fullname is absolute when GDB can provide it; file may be relative
+            item.setData(0, Qt.UserRole, {
+                'level': int(frame.get('level') or 0),
+                'file': frame.get('fullname') or file_path,
+                'line': int(frame.get('line') or 0),
+            })
+
+    def _on_call_stack_frame_activated(self, item: QTreeWidgetItem, column: int = 0) -> None:
+        """Select the double-clicked stack frame and show its source line."""
+        info = item.data(0, Qt.UserRole)
+        if not info or not self.gdb_controller.select_frame(info['level']):
+            return
+
+        file_path = info['file']
+        if file_path and os.path.exists(file_path):
+            self.source_viewer.load_source_file(file_path, info['line'])
+            self.current_file_label.setText(f"{file_path}:{info['line']}")
+        elif info['line'] > 0:
+            self.source_viewer.highlight_current_line(info['line'])
+
+    def _show_breakpoints_context_menu(self, position: Any) -> None:
+        """Show context menu for the breakpoints tree."""
+        item = self.breakpoints_tree.itemAt(position)
+        if not item:
+            return
+
+        breakpoint = self.breakpoint_manager.get_breakpoint(item.data(0, Qt.UserRole))
+        if not breakpoint:
+            return
+
+        menu = QMenu(self.breakpoints_tree)
+
+        toggle_text = "Disable" if breakpoint.enabled else "Enable"
+        toggle_action = QAction(toggle_text, self.breakpoints_tree)
+        toggle_action.triggered.connect(
+            lambda: self.breakpoint_manager.toggle_breakpoint(breakpoint.breakpoint_id))
+        menu.addAction(toggle_action)
+
+        delete_action = QAction("Delete", self.breakpoints_tree)
+        delete_action.triggered.connect(
+            lambda: self._delete_breakpoint(breakpoint.breakpoint_id))
+        menu.addAction(delete_action)
+
+        menu.exec_(self.breakpoints_tree.viewport().mapToGlobal(position))
+
+    def _delete_breakpoint(self, breakpoint_id: int) -> None:
+        """Delete a breakpoint and its visual marker."""
+        breakpoint = self.breakpoint_manager.get_breakpoint(breakpoint_id)
+        if breakpoint and self.breakpoint_manager.remove_breakpoint(breakpoint_id):
+            if self._is_current_source(breakpoint.file):
+                self.source_viewer.remove_breakpoint_marker(breakpoint.line)
 
     def _update_watchpoints_tree(self) -> None:
         """Update the watchpoints tree with current watchpoints."""
