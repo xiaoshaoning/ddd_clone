@@ -82,6 +82,13 @@ def test_headless_gdb_session(qtbot, debug_exe):
     assert window.source_viewer.current_file == SRC
     assert window.source_viewer.blockCount() > 0
 
+    # The example opens with a /* ... */ block, so its first lines are not
+    # breakable even though none of them starts with the comment marker.
+    # This runs against the pygments-rendered document, not plain text.
+    assert window.source_viewer.is_code_line(2) is False
+    assert window.source_viewer.is_code_line(5) is False
+    assert window.source_viewer.is_code_line(6) is True
+
     # 2. Start GDB
     assert gdb_controller.start_gdb(debug_exe) is True
     _pump(800)
@@ -96,11 +103,21 @@ def test_headless_gdb_session(qtbot, debug_exe):
     assert _wait_state(gdb_controller, 'stopped'), dict(gdb_controller.current_state)
     assert gdb_controller.current_state['function'] == 'main'
 
-    # 5. UI reflects the stop
+    # 5. UI reflects the stop, and the visible tab was refreshed by it
     assert window.source_viewer.current_line > 0
-    window._update_variables_tree()
+    _pump(200)  # state_changed is queued from the reader thread
     assert window.variables_tree.topLevelItemCount() >= 1
-    assert gdb_controller.get_call_stack() != []
+
+    # 5b. Only the visible view is refreshed on a stop, so bringing another
+    # one forward is what has to populate it.
+    window.tab_widget.setCurrentWidget(window.registers_tree)
+    assert window.registers_tree.topLevelItemCount() > 0
+    window.tab_widget.setCurrentWidget(window.call_stack_tree)
+    assert window.call_stack_tree.topLevelItemCount() >= 1
+    assert window.call_stack_tree.topLevelItem(0).text(0) == 'main'
+    window.tab_widget.setCurrentWidget(window.variables_tree)
+    _pump(200)
+    assert window.variables_tree.topLevelItemCount() >= 1
 
     # 6. Expand an array (int arr[5]) -> children should fill in
     arr_item = None
@@ -129,12 +146,18 @@ def test_headless_gdb_session(qtbot, debug_exe):
     assert [origin_item.child(i).text(0) for i in range(2)] == ['x', 'y']
     assert origin_item.child(0).text(2) == 'int'
 
-    # 8. Step over a few lines without crashing
+    # 8. Memory viewer reads a real address, and the size selector re-reads it
+    assert window.memory_viewer.set_address('&number') is True
+    assert len(window.memory_viewer.dump.toPlainText().splitlines()) == 16  # 256 bytes
+    window.memory_viewer.size_combo.setCurrentText('64')
+    assert len(window.memory_viewer.dump.toPlainText().splitlines()) == 4
+
+    # 9. Step over a few lines without crashing
     for _ in range(5):
         gdb_controller.step_over()
         _pump(300)
     assert gdb_controller.current_state['state'] == 'stopped'
 
-    # 9. Tear down cleanly
+    # 10. Tear down cleanly
     gdb_controller.shutdown()
     assert gdb_controller.current_state['state'] == 'disconnected'
