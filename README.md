@@ -8,6 +8,7 @@ A Python-based graphical debugger frontend for the GNU Debugger (GDB), inspired 
 - **Breakpoint Management**: Set, remove, and manage breakpoints with conditions
 - **Variable Inspection**: View and inspect local and global variables
 - **Watch Expressions**: Monitor specific expressions during execution
+- **Memory Viewer**: Hex dump of memory at an address or any expression
 - **Execution Control**: Run, pause, step over, step into, step out, and continue execution
 - **Call Stack**: View and navigate the call stack
 - **GDB Integration**: Seamless integration with GDB using MI (Machine Interface)
@@ -61,30 +62,40 @@ main()
 
 ### Starting a Debugging Session
 
-1. Launch DDD Clone
-2. Use "File" → "Open Program" to load an executable
-3. The source code will be displayed in the main window
+1. Launch DDD Clone, optionally naming the program to debug
+2. Click "Load" in the toolbar to choose an executable
+3. The source code is displayed in the main window
 
 ### Setting Breakpoints
 
-- Click in the left margin of the source code viewer to set a breakpoint
-- Right-click on a breakpoint to set conditions or remove it
-- Use the "Breakpoints" tab to manage all breakpoints
+- Click in the left margin of the source code viewer to set or clear a breakpoint
+- A click on a blank line, or one inside a comment, does nothing
+- Right-click a row in the "Breakpoints" tab to edit its condition, enable or
+  disable it, or delete it
+- An empty condition removes the condition
+- Breakpoints typed at the GDB prompt appear in the tab too, because the list
+  is read back from GDB rather than tracked separately
 
 ### Controlling Execution
 
-- **Run (F5)**: Start program execution
-- **Pause**: Interrupt running program
-- **Step Over (F10)**: Execute current line, stepping over function calls
-- **Step Into (F11)**: Step into function calls
-- **Step Out (Shift+F11)**: Step out of current function
-- **Continue (F5)**: Continue execution until next breakpoint
+The toolbar has Load, Run/Continue, Pause, Step Over, Step Into and Step Out.
+There are no keyboard shortcuts; the buttons are the only way to drive
+execution.
 
 ### Inspecting Variables
 
-- Local variables are automatically displayed in the "Variables" tab
-- Add watch expressions in the "Watch" tab to monitor specific values
-- Expand complex variables (structs, arrays) to view their members
+- Locals appear in the "Variables" tab; right-click one to add it to "Watch"
+- Arrays and structs expand, and so do their members, to any depth
+- The "Add Watchpoint" toolbar button sets a watchpoint, which shows a live
+  value once the program is stopped
+- The "Memory" tab dumps memory at an address or any expression that
+  evaluates to one (`&value`, `$rsp`)
+- Double-click a row in the "Call Stack" tab to select that frame and show its
+  source line
+- The command box under the tabs runs raw GDB commands
+
+Debug views refresh when the program stops, and when they are brought to the
+front.
 
 ## Architecture
 
@@ -95,53 +106,46 @@ main()
 - **Source Viewer**: Displays source code with syntax highlighting
 - **Breakpoint Manager**: Handles breakpoint operations
 - **Variable Inspector**: Manages variable inspection and watch expressions
+- **Memory Viewer**: Hex dump of a memory region, refreshed while stepping
 
 ### File Structure
 
 ```
-ddd/
+ddd_clone/
 ├── README.md                          # Project documentation
-├── CLAUDE.md                         # Project instructions for Claude Code
+├── CLAUDE.md                          # Project instructions for Claude Code
+├── _headless_debug.py                 # Offscreen GUI harness (see Troubleshooting)
 ├── requirements.txt                   # Python dependencies
-├── setup.py                          # Package installation configuration
-├── ddd_clone/                        # Main application package
+├── setup.py                           # Package installation configuration
+├── ddd_clone/                         # Main application package
 │   ├── __init__.py
-│   ├── main.py
-│   ├── gui/                          # GUI components
+│   ├── main.py                        # Entry point
+│   ├── gui/                           # GUI components
 │   │   ├── __init__.py
-│   │   ├── main_window.py
-│   │   ├── source_viewer.py
-│   │   ├── breakpoint_manager.py
-│   │   ├── variable_inspector.py
-│   │   └── line_number_area.py
-│   └── gdb/                          # GDB integration
+│   │   ├── main_window.py             # Window, panels and toolbar
+│   │   ├── source_viewer.py           # Source display and breakpoint gutter
+│   │   ├── line_number_area.py
+│   │   ├── breakpoint_manager.py      # Mirrors GDB's breakpoint list
+│   │   ├── variable_inspector.py      # Variables and watch expressions
+│   │   └── memory_viewer.py           # Hex dump tab
+│   └── gdb/                           # GDB integration
 │       ├── __init__.py
-│       └── gdb_controller.py
-├── tests/                            # Test suite
+│       ├── exceptions.py
+│       └── gdb_controller.py          # The only reader of GDB/MI output
+├── tests/                             # Test suite
 │   ├── __init__.py
-│   ├── test_gdb_controller.py
+│   ├── test_gdb_controller.py         # MI parsing and commands
 │   ├── test_breakpoint_manager.py
 │   ├── test_variable_inspector.py
-│   ├── test_gui_automated.py
-│   ├── test_complete.py
-│   ├── test_gui.py
-│   ├── test_minimal.py
-│   └── test_simple.py
-├── docs/                             # Project documentation
-│   ├── it_1.txt
-│   ├── it_2.txt
-│   ├── it_3.txt
-│   ├── it_4.txt
-│   ├── it_5.txt
-│   ├── it_6.txt
-│   ├── FONT_SYNC_FIX_SUMMARY.md
-│   ├── GUI_TEST_COVERAGE_ANALYSIS.md
-│   ├── GUI_TEST_IMPROVEMENT_SUMMARY.md
-│   └── PROJECT_SUMMARY.md
-└── examples/                         # Example programs for testing
+│   ├── test_memory_viewer.py
+│   ├── test_gui.py                    # Smoke test
+│   ├── test_gui_automated.py          # qtbot-driven widget tests
+│   ├── test_gui_components.py         # Tab wiring and dialogs
+│   └── test_integration_headless.py   # Real Qt + real GDB (skips without them)
+├── docs/                              # Historical notes and design reviews
+└── examples/                          # Example program used by the tests
     ├── README.md
-    ├── simple_program.c
-    └── simple_program.exe
+    └── simple_program.c
 ```
 
 ## Development
@@ -154,9 +158,6 @@ pytest
 
 # Run specific test file
 pytest tests/test_gdb_controller.py
-
-# Run tests with coverage
-pytest --cov=ddd_clone
 ```
 
 ### Code Style
@@ -193,14 +194,20 @@ mypy ddd_clone/
 
 **Syntax highlighting not working**: Install pygments: `pip install pygments`
 
-### Debug Mode
+### Headless Session
 
-Enable debug output by setting the environment variable:
+`_headless_debug.py` drives the real GUI offscreen against a real GDB session
+and prints a trace, which is useful when there is no display:
 
 ```bash
-export DDD_DEBUG=1
-ddd-clone
+export QT_QPA_PLATFORM=offscreen
+python _headless_debug.py
 ```
+
+It writes screenshots to a temporary directory. They show layout only: the
+offscreen platform on most machines has no fonts, so text is never drawn.
+The asserted end-to-end test is `tests/test_integration_headless.py`, which
+skips when `gcc` or `gdb` is unavailable.
 
 ## License
 

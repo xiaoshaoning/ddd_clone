@@ -29,10 +29,6 @@ Thank you for your interest in contributing to DDD Clone! This document provides
   ```bash
   pytest
   ```
-- Run tests with coverage:
-  ```bash
-  pytest --cov=ddd_clone
-  ```
 
 ## Pull Request Process
 
