@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="ddd-clone",
-    version="0.1.0",
+    version="0.2.0",
     description="A graphical debugger frontend for GDB",
     author="DDD Clone Team",
     packages=find_packages(),
